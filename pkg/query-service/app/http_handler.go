@@ -4996,7 +4996,6 @@ func (aH *APIHandler) getDomainList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result = thirdpartyapi.MergeSemconvColumns(result)
 	result = thirdpartyapi.FilterIntermediateColumns(result)
 
 	// Filter IP addresses if ShowIp is false
@@ -5053,7 +5052,6 @@ func (aH *APIHandler) getDomainInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result = thirdpartyapi.MergeSemconvColumns(result)
 	result = thirdpartyapi.FilterIntermediateColumns(result)
 
 	// Filter IP addresses if ShowIp is false
