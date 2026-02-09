@@ -325,7 +325,7 @@ export default function TableViewActions(
 								onOpenChange={setIsOpen}
 								arrow={false}
 								content={
-									<div>
+									<div data-log-detail-ignore="true">
 										<Button
 											className="group-by-clause"
 											type="text"
@@ -403,7 +403,7 @@ export default function TableViewActions(
 							onOpenChange={setIsOpen}
 							arrow={false}
 							content={
-								<div>
+								<div data-log-detail-ignore="true">
 									<Button
 										className="group-by-clause"
 										type="text"
