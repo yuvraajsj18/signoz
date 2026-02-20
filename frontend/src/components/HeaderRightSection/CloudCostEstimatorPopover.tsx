@@ -5,7 +5,18 @@ import { getQueryRangeV5 } from 'api/v5/queryRange/getQueryRange';
 import { ENTITY_VERSION_V5 } from 'constants/app';
 import { REACT_QUERY_KEY } from 'constants/reactQueryKeys';
 import { ArrowUpRight, CircleHelp, FileText, Gauge, Orbit } from 'lucide-react';
-import { QueryRangePayloadV5 } from 'types/api/v5/queryRange';
+import {
+	BuilderQuery,
+	LogAggregation,
+	LogBuilderQuery,
+	MeterBuilderQuery,
+	MetricAggregation,
+	MetricBuilderQuery,
+	QueryRangePayloadV5,
+	TraceAggregation,
+	TraceBuilderQuery,
+} from 'types/api/v5/queryRange';
+import { ReduceOperators } from 'types/common/queryBuilder';
 
 const KB_PER_GB = 1_048_576;
 const SAMPLES_PER_MILLION = 1_000_000;
@@ -30,20 +41,35 @@ const formatCompact = (value: number): string =>
 		maximumFractionDigits: 1,
 	}).format(value || 0);
 
-const getAggregations = (
-	metricName?: string,
-): QueryRangePayloadV5['compositeQuery']['queries'][number]['spec']['aggregations'] =>
-	metricName
-		? [
-				{
-					metricName,
-					temporality: '',
-					timeAggregation: 'increase',
-					spaceAggregation: 'sum',
-					reduceTo: 'avg',
-				},
-		  ]
-		: [{ expression: 'count()' }];
+const getMetricAggregations = (metricName: string): MetricAggregation[] => [
+	{
+		metricName,
+		temporality: '',
+		timeAggregation: 'increase',
+		spaceAggregation: 'sum',
+		reduceTo: ReduceOperators.AVG,
+	},
+];
+
+const getSignalCountAggregations = ():
+	| LogAggregation[]
+	| TraceAggregation[] => [{ expression: 'count()' }];
+
+type ScalarCountPayloadInput =
+	| {
+			start: number;
+			end: number;
+			signal: 'metrics';
+			source?: 'meter';
+			metricName: string;
+	  }
+	| {
+			start: number;
+			end: number;
+			signal: 'logs' | 'traces';
+			source?: never;
+			metricName?: never;
+	  };
 
 const buildScalarCountPayload = ({
 	start,
@@ -51,13 +77,53 @@ const buildScalarCountPayload = ({
 	signal,
 	source,
 	metricName,
-}: {
-	start: number;
-	end: number;
-	signal: 'metrics' | 'logs' | 'traces';
-	source?: 'meter';
-	metricName?: string;
-}): QueryRangePayloadV5 => {
+}: ScalarCountPayloadInput): QueryRangePayloadV5 => {
+	let spec: BuilderQuery;
+	if (signal === 'metrics') {
+		if (source === 'meter') {
+			spec = {
+				name: 'A',
+				signal: 'metrics',
+				source: 'meter',
+				stepInterval: null,
+				disabled: false,
+				filter: { expression: '' },
+				legend: 'count',
+				aggregations: getMetricAggregations(metricName),
+			} as MeterBuilderQuery;
+		} else {
+			spec = {
+				name: 'A',
+				signal: 'metrics',
+				stepInterval: null,
+				disabled: false,
+				filter: { expression: '' },
+				legend: 'count',
+				aggregations: getMetricAggregations(metricName),
+			} as MetricBuilderQuery;
+		}
+	} else if (signal === 'logs') {
+		spec = {
+			name: 'A',
+			signal: 'logs',
+			stepInterval: null,
+			disabled: false,
+			filter: { expression: '' },
+			legend: 'count',
+			aggregations: getSignalCountAggregations(),
+		} as LogBuilderQuery;
+	} else {
+		spec = {
+			name: 'A',
+			signal: 'traces',
+			stepInterval: null,
+			disabled: false,
+			filter: { expression: '' },
+			legend: 'count',
+			aggregations: getSignalCountAggregations(),
+		} as TraceBuilderQuery;
+	}
+
 	return {
 		schemaVersion: 'v1',
 		start,
@@ -67,16 +133,7 @@ const buildScalarCountPayload = ({
 			queries: [
 				{
 					type: 'builder_query',
-					spec: {
-						name: 'A',
-						signal,
-						...(source ? { source } : {}),
-						stepInterval: null,
-						disabled: false,
-						filter: { expression: '' },
-						legend: 'count',
-						aggregations: getAggregations(metricName),
-					},
+					spec,
 				},
 			],
 		},
@@ -91,12 +148,25 @@ const buildScalarCountPayload = ({
 const extractScalarValue = (
 	response: Awaited<ReturnType<typeof getQueryRangeV5>>,
 ): number => {
-	const rows = response?.data?.data?.data?.results?.[0]?.data;
+	const firstResult = response?.data?.data?.data?.results?.[0];
+	if (
+		!firstResult ||
+		typeof firstResult !== 'object' ||
+		!('data' in firstResult) ||
+		!Array.isArray(firstResult.data)
+	) {
+		return 0;
+	}
+	const rows = firstResult.data as unknown[];
 	if (!rows || !Array.isArray(rows) || rows.length === 0) {
 		return 0;
 	}
 
-	return rows.reduce((acc, row) => acc + Number(row?.[0] || 0), 0);
+	return rows.reduce(
+		(acc, row) =>
+			acc + (Array.isArray(row) && row.length > 0 ? Number(row[0] || 0) : 0),
+		0,
+	);
 };
 
 // eslint-disable-next-line sonarjs/cognitive-complexity
