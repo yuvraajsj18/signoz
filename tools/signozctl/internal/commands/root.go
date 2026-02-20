@@ -2,11 +2,14 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SigNoz/signoz/tools/signozctl/internal/client"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/config"
@@ -233,9 +236,19 @@ func newQueryCommand(flags *globalFlags) *cobra.Command {
 		Short: "Query Metrics, Logs, and Traces",
 	}
 
+	cmd.AddCommand(newQueryTemplateCommand(flags))
+	cmd.AddCommand(newQuerySchemaCommand(flags))
+	cmd.AddCommand(newQueryValidateCommand(flags))
+
 	cmd.AddCommand(newQueryFileCommand(flags, "traces", "/api/v5/query_range", "Run a traces query payload against /api/v5/query_range"))
 	cmd.AddCommand(newQueryFileCommand(flags, "logs", "/api/v5/query_range", "Run a logs query payload against /api/v5/query_range"))
 	cmd.AddCommand(newQueryFileCommand(flags, "metrics", "/api/v5/query_range", "Run a metrics query payload against /api/v5/query_range"))
+	cmd.AddCommand(newProfileGetByIDCommand(flags, "trace <trace-id>", "Get trace summary by trace ID", "/api/v1/traces/%s"))
+	cmd.AddCommand(newTraceRootCommand(flags))
+	cmd.AddCommand(newTraceWaterfallCommand(flags))
+	cmd.AddCommand(newTraceFlamegraphCommand(flags))
+	cmd.AddCommand(newProfileGetCommand(flags, "trace-fields", "Get trace field config", "/api/v2/traces/fields"))
+	cmd.AddCommand(newProfilePostFromFileCommand(flags, "trace-fields-update", "Update trace field config", "/api/v2/traces/fields"))
 	cmd.AddCommand(newProfilePostFromFileCommand(flags, "services", "Query services", "/api/v2/services"))
 	cmd.AddCommand(newProfilePostFromFileCommand(flags, "service-ops", "Query top service operations", "/api/v2/service/top_operations"))
 	cmd.AddCommand(newProfilePostFromFileCommand(flags, "entrypoint-ops", "Query service entrypoint operations", "/api/v2/service/entry_point_operations"))
@@ -269,6 +282,7 @@ func newQueryCommand(flags *globalFlags) *cobra.Command {
 func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Command {
 	var filePath string
 	var localProfile string
+	var last string
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -279,6 +293,21 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
 				return err
+			}
+			if last != "" {
+				duration, err := parseRelativeDuration(last)
+				if err != nil {
+					return fmt.Errorf("invalid --last value %q: %w", last, err)
+				}
+				end := time.Now().UnixMilli()
+				start := end - duration.Milliseconds()
+				if start < 0 {
+					start = 0
+				}
+				raw, err = applyTimeRange(raw, start, end)
+				if err != nil {
+					return fmt.Errorf("failed to apply --last time range: %w", err)
+				}
 			}
 			cfg, prof, _, err := loadProfileFromFlags(flags, localProfile)
 			_ = cfg
@@ -299,6 +328,7 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 	}
 	cmd.Flags().StringVar(&filePath, "file", "", "JSON payload file")
 	cmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
+	cmd.Flags().StringVar(&last, "last", "", "relative time range ending now (e.g. 5m, 2h, 24h, 2d, 1w)")
 	return cmd
 }
 
@@ -307,6 +337,10 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 		Use:   "dashboard",
 		Short: "Create, update, delete, and list dashboards",
 	}
+
+	cmd.AddCommand(newDashboardTemplateCommand(flags))
+	cmd.AddCommand(newDashboardSchemaCommand(flags))
+	cmd.AddCommand(newDashboardValidateCommand(flags))
 
 	var filePath string
 	var localProfile string
@@ -407,6 +441,11 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	}
 	deleteCmd.Flags().StringVar(&deleteProfile, "profile", "", "profile name override")
 	cmd.AddCommand(deleteCmd)
+
+	cmd.AddCommand(newDashboardPublicCreateCommand(flags))
+	cmd.AddCommand(newProfileGetByIDCommand(flags, "public-get <dashboard-id>", "Get public sharing config for a dashboard", "/api/v1/dashboards/%s/public"))
+	cmd.AddCommand(newDashboardPublicUpdateCommand(flags))
+	cmd.AddCommand(newProfileDeleteByIDCommand(flags, "public-delete <dashboard-id>", "Delete public sharing config for a dashboard", "/api/v1/dashboards/%s/public"))
 
 	return cmd
 }
@@ -538,4 +577,44 @@ func hostOrProfileHost(flags *globalFlags, hostFlag string) (string, error) {
 		return "", errors.New("missing host: use --host or authenticate with a profile")
 	}
 	return prof.Host, nil
+}
+
+func applyTimeRange(raw []byte, startMillis, endMillis int64) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	payload["start"] = startMillis
+	payload["end"] = endMillis
+	return json.Marshal(payload)
+}
+
+func parseRelativeDuration(raw string) (time.Duration, error) {
+	v := strings.TrimSpace(strings.ToLower(raw))
+	if v == "" {
+		return 0, errors.New("duration is empty")
+	}
+
+	if strings.HasSuffix(v, "d") || strings.HasSuffix(v, "w") {
+		unit := v[len(v)-1]
+		n, err := strconv.Atoi(v[:len(v)-1])
+		if err != nil || n <= 0 {
+			return 0, errors.New("expected positive integer before d/w")
+		}
+		switch unit {
+		case 'd':
+			return time.Duration(n) * 24 * time.Hour, nil
+		case 'w':
+			return time.Duration(n) * 7 * 24 * time.Hour, nil
+		}
+	}
+
+	duration, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, err
+	}
+	if duration <= 0 {
+		return 0, errors.New("duration must be > 0")
+	}
+	return duration, nil
 }

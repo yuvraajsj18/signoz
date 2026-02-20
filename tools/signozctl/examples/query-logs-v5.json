@@ -14,7 +14,7 @@
               "expression": "count()"
             }
           ],
-          "limit": 50
+          "limit": 10
         }
       }
     ]

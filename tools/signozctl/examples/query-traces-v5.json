@@ -1,8 +1,7 @@
 {
   "schemaVersion": "v1",
-  "start": 0,
-  "end": 0,
-  "step": 60,
+  "start": 1771627162000,
+  "end": 1771627462000,
   "requestType": "trace",
   "compositeQuery": {
     "queries": [

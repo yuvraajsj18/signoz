@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 )
 
 type Client struct {
@@ -87,7 +89,7 @@ func (c *Client) do(req *http.Request, out any) error {
 
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("api request failed: status=%d body=%s", resp.StatusCode, string(b))
+		return signozerrors.ParseAPIError(resp.StatusCode, b)
 	}
 
 	if out == nil {

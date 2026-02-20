@@ -37,10 +37,68 @@ go build ./cmd/signozctl
 ./signozctl query metrics --file examples/query-metrics-v5.json --profile local --output json
 ```
 
+Relative time override without editing payload:
+
+```bash
+./signozctl query traces --file examples/query-traces-v5.json --profile local --last 5m --output json
+./signozctl query metrics --file examples/query-metrics-v5.json --profile local --last 2h --output json
+```
+
+Generate payload templates and schema ideas:
+
+```bash
+./signozctl query template --signal traces --output json
+./signozctl query schema --signal metrics --output json
+./signozctl query validate --file examples/query-traces-v5.json --output json
+```
+
+Span-level trace operations:
+
+```bash
+./signozctl query trace <trace-id> --profile local --output json
+./signozctl query trace-root <trace-id> --profile local --output json
+./signozctl query trace-waterfall <trace-id> --profile local --output json
+./signozctl query trace-waterfall <trace-id> --expand-all --profile local --output json
+./signozctl query trace-flamegraph <trace-id> --profile local --output json
+# optional controls without a file:
+./signozctl query trace-waterfall <trace-id> --selected-span-id <span-id> --expand-selected --uncollapse-span <span-id> --profile local --output json
+./signozctl query trace-flamegraph <trace-id> --selected-span-id <span-id> --profile local --output json
+# optional advanced request bodies via file:
+./signozctl query trace-waterfall <trace-id> --file examples/trace-waterfall.json --profile local --output json
+./signozctl query trace-flamegraph <trace-id> --file examples/trace-flamegraph.json --profile local --output json
+```
+
 4. Create dashboard from JSON:
 
 ```bash
 ./signozctl dashboard create --file examples/dashboard-minimal.json --profile local --output json
+```
+
+Dashboard public sharing:
+
+```bash
+./signozctl dashboard public-create <dashboard-id> --enabled --profile local --output json
+./signozctl dashboard public-get <dashboard-id> --profile local --output json
+./signozctl dashboard public-update <dashboard-id> --enabled=false --profile local --output json
+./signozctl dashboard public-delete <dashboard-id> --profile local --output json
+# optional file payload still supported:
+./signozctl dashboard public-update <dashboard-id> --file examples/dashboard-public.json --profile local --output json
+```
+
+Templates, schemas, and local validation for other domains:
+
+```bash
+./signozctl dashboard template --resource create --output json
+./signozctl dashboard schema --resource public-create --output json
+./signozctl dashboard validate --resource create --file examples/dashboard-minimal.json --output json
+
+./signozctl alerts template --resource rule --output json
+./signozctl alerts schema --resource channel --output json
+./signozctl alerts validate --resource rule --file examples/alerts-rule.json --output json
+
+./signozctl iam template --resource invite --output json
+./signozctl iam schema --resource api-key --output json
+./signozctl iam validate --resource invite --file examples/iam-invite.json --output json
 ```
 
 ## Implemented command groups

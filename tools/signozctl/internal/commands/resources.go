@@ -17,6 +17,10 @@ func newAlertsCommand(flags *globalFlags) *cobra.Command {
 		Short: "Alerting resources: alerts, rules, channels, route policies, downtime",
 	}
 
+	cmd.AddCommand(newAlertsTemplateCommand(flags))
+	cmd.AddCommand(newAlertsSchemaCommand(flags))
+	cmd.AddCommand(newAlertsValidateCommand(flags))
+
 	cmd.AddCommand(newProfileGetCommand(flags, "list", "List active alerts", "/api/v1/alerts"))
 	cmd.AddCommand(buildCRUDGroup(flags, "rules", "/api/v1/rules"))
 	cmd.AddCommand(buildCRUDGroup(flags, "channels", "/api/v1/channels"))
@@ -36,6 +40,10 @@ func newIAMCommand(flags *globalFlags) *cobra.Command {
 		Use:   "iam",
 		Short: "Identity and access commands: invites, roles, API keys, users",
 	}
+
+	cmd.AddCommand(newIAMTemplateCommand(flags))
+	cmd.AddCommand(newIAMSchemaCommand(flags))
+	cmd.AddCommand(newIAMValidateCommand(flags))
 
 	invite := &cobra.Command{
 		Use:   "invite",
@@ -229,6 +237,69 @@ func newProfileDeleteByIDCommand(flags *globalFlags, use, short, pathFmt string)
 			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
 		},
 	}
+	cmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
+	return cmd
+}
+
+func newProfilePostByIDFromFileCommand(flags *globalFlags, use, short, pathFmt string) *cobra.Command {
+	var localProfile string
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if filePath == "" {
+				return errors.New("missing required flag: --file")
+			}
+			raw, err := os.ReadFile(filePath)
+			if err != nil {
+				return err
+			}
+			c, err := profileClient(flags, localProfile)
+			if err != nil {
+				return err
+			}
+			var resp map[string]any
+			if err := c.PostRawJSON(cmd.Context(), fmt.Sprintf(pathFmt, args[0]), raw, &resp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
+		},
+	}
+	cmd.Flags().StringVar(&filePath, "file", "", "JSON payload file")
+	cmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
+	return cmd
+}
+
+func newProfilePostByIDWithOptionalFileCommand(flags *globalFlags, use, short, pathFmt string) *cobra.Command {
+	var localProfile string
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			raw := []byte(`{}`)
+			if filePath != "" {
+				var err error
+				raw, err = os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
+			}
+			c, err := profileClient(flags, localProfile)
+			if err != nil {
+				return err
+			}
+			var resp map[string]any
+			if err := c.PostRawJSON(cmd.Context(), fmt.Sprintf(pathFmt, args[0]), raw, &resp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
+		},
+	}
+	cmd.Flags().StringVar(&filePath, "file", "", "optional JSON payload file")
 	cmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
 	return cmd
 }

@@ -37,11 +37,33 @@ Implemented:
 - `tools/signozctl/README.md`
 - `tools/signozctl/examples/*`
 6. Unit test coverage for command contracts and behavior in `internal/commands`
+7. Live integration tests added (opt-in) for local profile workflows:
+- `auth status`
+- `query traces` (v5 payload)
+- `dashboard create/delete`
+8. Baseline normalized API error model implemented:
+- status/code -> error class mapping
+- actionable hint text in returned errors
+9. Query payload ergonomics added:
+- `query template --signal <traces|logs|metrics>` for runnable payload generation
+- `query schema --signal <...>` for payload shape guidance
+- `query validate --file <payload.json>` for local payload validation
+- `query <signal> --last <relative-duration>` to override start/end at runtime (e.g. `5m`, `2h`, `2d`, `1w`)
+10. Additional route coverage added:
+- trace detail commands: `query trace`, `query trace-waterfall`, `query trace-flamegraph`, `query trace-fields`, `query trace-fields-update`
+- dashboard public sharing commands: `dashboard public-create/get/update/delete`
+11. Template/schema/validate pattern expanded to additional domains:
+- `dashboard template/schema/validate`
+- `alerts template/schema/validate`
+- `iam template/schema/validate`
+12. UX improvements from live usage feedback:
+- `query trace-waterfall` and `query trace-flamegraph` no longer require `--file` (default request body is `{}`)
+- dashboard create schema now includes nested field hints (`widgets/query`, `layout`, `variables`) for agent payload authoring
 
 Not yet complete:
-1. Live end-to-end integration tests against a running SigNoz stack
-2. Guidance-first normalized error model contract (typed error classes + remediation hints everywhere)
-3. Public dashboard sharing command family polish
+1. Expand live integration coverage across alerts/iam/system/public sharing flows
+2. Apply guidance-first error wrapping consistently for all command paths and document machine-readable error contract
+3. Improve template/schema fidelity with tighter endpoint-specific field contracts (from full API specs/types)
 4. Docs-intelligence implementation (`docs search`, `docs fetch`) is still deferred
 5. Auth hardening (refresh ergonomics, secure secret storage upgrades, CI-first flows)
 
@@ -377,6 +399,8 @@ Initial practical test targets for this repository:
 - query traces against local running stack
 - create a minimal dashboard from a query result payload
 - stable JSON output and exit codes for agent automation
+- live integration execution command:
+  `SIGNOZCTL_E2E=1 SIGNOZCTL_E2E_PROFILE=local go test ./internal/commands -run TestLive -v`
 
 ---
 
