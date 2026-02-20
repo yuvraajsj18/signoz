@@ -20,6 +20,69 @@ In short: **agents should use `signozctl` instead of raw API calls for productio
 
 ---
 
+## Current Implementation Status (As of now)
+Implemented:
+1. Working CLI module at `tools/signozctl` with Go + Cobra
+2. Root wrapper at `cmd/signozctl` so repo-root invocation works:
+- `go run ./cmd/signozctl ...`
+3. Authentication and profile management:
+- `auth login/status/logout/use/profiles`
+4. Core action commands:
+- `query` (metrics/logs/traces and additional service/error/dependency helpers)
+- `dashboard` (list/create/update/delete)
+- `alerts` (alerts, rules/channels/route-policies/downtime CRUD and test endpoints)
+- `iam` (invite, roles, API keys, users)
+- `system` (health/version/usage/disks/raw-export/ttl/apdex)
+5. Repository examples and command docs:
+- `tools/signozctl/README.md`
+- `tools/signozctl/examples/*`
+6. Unit test coverage for command contracts and behavior in `internal/commands`
+
+Not yet complete:
+1. Live end-to-end integration tests against a running SigNoz stack
+2. Guidance-first normalized error model contract (typed error classes + remediation hints everywhere)
+3. Public dashboard sharing command family polish
+4. Docs-intelligence implementation (`docs search`, `docs fetch`) is still deferred
+5. Auth hardening (refresh ergonomics, secure secret storage upgrades, CI-first flows)
+
+---
+
+## Global Installation
+Preferred install path for local/global usage:
+
+```bash
+cd /Users/yuvraj/Workspace/Work/signoz/tools/signozctl
+go install ./cmd/signozctl
+```
+
+Then run:
+
+```bash
+signozctl --help
+```
+
+If command is not found, add Go bin to `PATH`:
+
+```bash
+export PATH="$HOME/go/bin:$PATH"
+```
+
+---
+
+## Local Validation Context (Current)
+This plan is grounded in a real local SigNoz environment running right now:
+- SigNoz stack command: `docker compose -f deploy/docker/docker-compose.yaml ps`
+- Active services: `signoz` and `signoz-clickhouse` in healthy state
+- SigNoz UI/API host: `http://localhost:8080`
+- Live traffic source: `/Users/yuvraj/Workspace/Work/microservices-monitoring`
+- Traffic generation pattern: looped `./scripts/generate-traffic.sh` every 10s
+
+Why this matters:
+- We can validate query and dashboard workflows against real traces, not synthetic stubs.
+- We can verify agent behavior end-to-end (auth -> query -> dashboard/alerts) during implementation.
+
+---
+
 ## Product Scope (Current Vision)
 The CLI must support agent-executable operations across:
 
@@ -52,6 +115,24 @@ The CLI must support agent-executable operations across:
 - Raw data export
 - Disks/usage
 - Health/version
+
+---
+
+## Action Coverage Matrix (User UI vs CLI)
+| User-visible action area | CLI support target | Expected status |
+| --- | --- | --- |
+| Query (Metrics, Logs, Traces) | Full query command family with stable output contracts | Doable |
+| Dashboard CRUD | Create/update/delete dashboard resources, including panel configs | Doable |
+| Alerts | Manage alerting resources exposed by APIs | Doable |
+| Invite/RBAC | Invite users and manage role/permission operations exposed by APIs | Doable |
+| API Keys | List/create/update/revoke personal API keys | Doable |
+| Public Dashboard Sharing | Create/update/revoke public share settings when API-backed | Doable |
+| Service Operations and Dependency Graph | Retrieve service topology and operation metadata where endpoints exist | Doable |
+| Error Tracking APIs | List/count/group/detail flows for errors | Doable |
+| Retention (TTL) and Apdex | Read/update retention and Apdex controls where API-backed | Doable |
+| Raw Data Export, Disks/Usage, Health/Version | Operational diagnostics and system visibility commands | Doable |
+| UI-only interactions (drag/drop layout editing UX) | Express final state via payloads, not mimic browser gestures | Not directly doable as interaction |
+| SSO flows requiring live human IdP steps | Support non-interactive token usage; interactive browser SSO is out of CLI-first scope | Not CLI-first |
 
 ---
 
@@ -269,8 +350,33 @@ This keeps implementation and maintenance close to existing SigNoz server conven
 - Robust tests
 - Backward-compatibility policy
 - Documentation polish and examples for agent workflows
+- Live integration tests against local/docker SigNoz
+- Error normalization contract completion
 
 This is intentionally a phased blueprint, not a detailed sprint plan.
+
+---
+
+## TDD Delivery Contract for `signozctl`
+The delivery process for this CLI follows strict red-green-refactor.
+
+Rules:
+1. No implementation code lands without a failing test first.
+2. For each behavior:
+- Add a focused failing test (`RED`) that demonstrates expected CLI behavior or error guidance.
+- Implement minimal code to pass (`GREEN`).
+- Refactor while keeping tests green (`REFACTOR`).
+3. Every API command must include:
+- success-path tests
+- auth/permission failure tests
+- invalid-input tests with guidance-first errors
+4. Every new command must have `--help` contract tests so discoverability does not regress.
+
+Initial practical test targets for this repository:
+- auth profile lifecycle (`auth login/use/status/logout`)
+- query traces against local running stack
+- create a minimal dashboard from a query result payload
+- stable JSON output and exit codes for agent automation
 
 ---
 

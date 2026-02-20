@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "v1",
+  "requestType": "time_series",
+  "compositeQuery": {
+    "queries": [
+      {
+        "type": "builder_query",
+        "spec": {
+          "name": "A",
+          "signal": "metrics",
+          "stepInterval": 60,
+          "aggregations": [
+            {
+              "metricName": "signoz_calls_total",
+              "temporality": "",
+              "timeAggregation": "sum",
+              "spaceAggregation": "sum"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

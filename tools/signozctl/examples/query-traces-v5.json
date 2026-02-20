@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "v1",
+  "start": 0,
+  "end": 0,
+  "step": 60,
+  "requestType": "trace",
+  "compositeQuery": {
+    "queries": [
+      {
+        "type": "builder_query",
+        "spec": {
+          "name": "A",
+          "signal": "traces",
+          "stepInterval": 60,
+          "aggregations": [
+            {
+              "expression": "count()"
+            }
+          ],
+          "order": [
+            {
+              "key": {
+                "name": "timestamp"
+              },
+              "direction": "desc"
+            }
+          ],
+          "limit": 20
+        }
+      }
+    ]
+  }
+}
