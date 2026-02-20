@@ -3,9 +3,10 @@ import { useLocation } from 'react-router-dom';
 import { Button, Popover } from 'antd';
 import logEvent from 'api/common/logEvent';
 import { useGetTenantLicense } from 'hooks/useGetTenantLicense';
-import { Globe, Inbox, SquarePen } from 'lucide-react';
+import { Calculator, Globe, Inbox, SquarePen } from 'lucide-react';
 
 import AnnouncementsModal from './AnnouncementsModal';
+import CloudCostEstimatorPopover from './CloudCostEstimatorPopover';
 import FeedbackModal from './FeedbackModal';
 import ShareURLModal from './ShareURLModal';
 
@@ -27,8 +28,14 @@ function HeaderRightSection({
 	const [openFeedbackModal, setOpenFeedbackModal] = useState(false);
 	const [openShareURLModal, setOpenShareURLModal] = useState(false);
 	const [openAnnouncementsModal, setOpenAnnouncementsModal] = useState(false);
+	const [openCloudCostModal, setOpenCloudCostModal] = useState(false);
 
-	const { isCloudUser, isEnterpriseSelfHostedUser } = useGetTenantLicense();
+	const {
+		isCloudUser,
+		isEnterpriseSelfHostedUser,
+		isCommunityUser,
+		isCommunityEnterpriseUser,
+	} = useGetTenantLicense();
 
 	const handleOpenFeedbackModal = useCallback((): void => {
 		logEvent('Feedback: Clicked', {
@@ -38,6 +45,7 @@ function HeaderRightSection({
 		setOpenFeedbackModal(true);
 		setOpenShareURLModal(false);
 		setOpenAnnouncementsModal(false);
+		setOpenCloudCostModal(false);
 	}, [location.pathname]);
 
 	const handleOpenShareURLModal = useCallback((): void => {
@@ -46,6 +54,18 @@ function HeaderRightSection({
 		});
 
 		setOpenShareURLModal(true);
+		setOpenFeedbackModal(false);
+		setOpenAnnouncementsModal(false);
+		setOpenCloudCostModal(false);
+	}, [location.pathname]);
+
+	const handleOpenCloudCostModal = useCallback((): void => {
+		logEvent('Cloud Cost: Clicked', {
+			page: location.pathname,
+		});
+
+		setOpenCloudCostModal(true);
+		setOpenShareURLModal(false);
 		setOpenFeedbackModal(false);
 		setOpenAnnouncementsModal(false);
 	}, [location.pathname]);
@@ -62,11 +82,19 @@ function HeaderRightSection({
 		setOpenAnnouncementsModal(open);
 	};
 
+	const handleOpenCloudCostModalChange = (open: boolean): void => {
+		setOpenCloudCostModal(open);
+	};
+
 	const handleOpenShareURLModalChange = (open: boolean): void => {
 		setOpenShareURLModal(open);
 	};
 
 	const isLicenseEnabled = isEnterpriseSelfHostedUser || isCloudUser;
+	const isOssUser =
+		isCommunityUser ||
+		isCommunityEnterpriseUser ||
+		(!isCloudUser && !isEnterpriseSelfHostedUser);
 
 	return (
 		<div className="header-right-section-container">
@@ -113,6 +141,28 @@ function HeaderRightSection({
 							});
 						}}
 					/>
+				</Popover>
+			)}
+
+			{isOssUser && (
+				<Popover
+					rootClassName="header-section-popover-root"
+					className="shareable-link-popover"
+					placement="bottomRight"
+					content={<CloudCostEstimatorPopover />}
+					open={openCloudCostModal}
+					destroyTooltipOnHide
+					arrow={false}
+					trigger="click"
+					onOpenChange={handleOpenCloudCostModalChange}
+				>
+					<Button
+						className="cloud-cost-btn periscope-btn ghost"
+						icon={<Calculator size={14} />}
+						onClick={handleOpenCloudCostModal}
+					>
+						Cloud Cost
+					</Button>
 				</Popover>
 			)}
 

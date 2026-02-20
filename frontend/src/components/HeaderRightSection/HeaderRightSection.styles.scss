@@ -4,6 +4,205 @@
 	gap: 8px;
 }
 
+.cloud-cost-estimator-modal {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px;
+	width: 380px;
+	border-radius: 12px;
+	border: 1px solid var(--bg-slate-400);
+	background: linear-gradient(180deg, rgba(17, 24, 33, 0.98), rgba(17, 24, 33, 0.92));
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.cloud-cost-header {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--bg-slate-400);
+}
+
+.cloud-cost-header-title {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.cloud-cost-help-icon {
+	color: var(--bg-vanilla-400);
+}
+
+.cloud-cost-estimator-title {
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--bg-vanilla-100);
+}
+
+.cloud-cost-estimator-subtitle {
+	font-size: 14px;
+	color: var(--bg-vanilla-400);
+}
+
+.cloud-cost-section-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	text-transform: uppercase;
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	font-weight: 700;
+	color: var(--bg-vanilla-400);
+}
+
+.cloud-cost-section-line {
+	height: 1px;
+	flex: 1;
+	background: var(--bg-slate-400);
+}
+
+.cloud-cost-usage-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.cloud-cost-usage-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px;
+	border-radius: 8px;
+	border: 1px solid var(--bg-slate-400);
+	background: rgba(17, 24, 33, 0.6);
+}
+
+.cloud-cost-usage-card-label {
+	font-size: 10px;
+	text-transform: uppercase;
+	color: var(--bg-vanilla-400);
+	letter-spacing: 0.06em;
+	font-weight: 700;
+}
+
+.cloud-cost-usage-card-value {
+	font-size: 21px;
+	color: var(--bg-vanilla-100);
+	font-weight: 600;
+	line-height: 1.1;
+}
+
+.cloud-cost-usage-line {
+	font-size: 12px;
+	color: var(--bg-vanilla-200);
+}
+
+.cloud-cost-rates-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.cloud-cost-rate-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 4px;
+	border-radius: 6px;
+}
+
+.cloud-cost-rate-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--bg-vanilla-300);
+	font-size: 14px;
+}
+
+.cloud-cost-rate-line {
+	font-size: 14px;
+	color: var(--bg-vanilla-100) !important;
+	font-weight: 600;
+}
+
+.cloud-cost-total-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	padding: 10px 10px;
+	border-radius: 10px;
+	border: 1px solid rgba(25, 120, 229, 0.35);
+	background: linear-gradient(
+		180deg,
+		rgba(25, 120, 229, 0.18) 0%,
+		rgba(25, 120, 229, 0.08) 100%
+	);
+}
+
+.cloud-cost-total-caption {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: var(--bg-vanilla-400);
+	font-weight: 700;
+}
+
+.cloud-cost-total-row {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+}
+
+.cloud-cost-total-value {
+	font-size: 34px;
+	line-height: 1;
+	font-weight: 700;
+	color: var(--bg-robin-500) !important;
+}
+
+.cloud-cost-total-suffix {
+	font-size: 13px;
+	color: var(--bg-robin-400);
+	font-weight: 600;
+}
+
+.cloud-cost-migration-btn {
+	height: 40px;
+	margin-top: 2px;
+	border-radius: 8px;
+	font-weight: 700;
+	padding: 0 14px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	.cloud-cost-migration-btn-content {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		gap: 10px;
+		text-align: center;
+		line-height: 1;
+
+		svg {
+			display: block;
+			flex-shrink: 0;
+		}
+	}
+}
+
+.cloud-cost-footnote {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--bg-vanilla-400);
+	text-align: center;
+}
+
 .share-modal-content,
 .feedback-modal-container {
 	display: flex;

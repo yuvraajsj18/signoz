@@ -45,6 +45,13 @@ jest.mock('../AnnouncementsModal', () => ({
 	),
 }));
 
+jest.mock('../CloudCostEstimatorPopover', () => ({
+	__esModule: true,
+	default: (): JSX.Element => (
+		<div data-testid="cloud-cost-modal">Cloud Cost Estimator</div>
+	),
+}));
+
 jest.mock('hooks/useGetTenantLicense', () => ({
 	useGetTenantLicense: jest.fn(),
 }));
@@ -269,11 +276,14 @@ describe('HeaderRightSection', () => {
 
 		render(<HeaderRightSection {...defaultProps} />);
 
-		// Should have 2 buttons (announcements + share) instead of 3
+		// Should have 3 buttons (announcements + cloud cost + share)
 		const buttons = screen.getAllByRole('button');
-		expect(buttons).toHaveLength(2);
+		expect(buttons).toHaveLength(3);
 
 		// Verify which buttons are present
+		expect(
+			screen.getByRole('button', { name: /cloud cost/i }),
+		).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /share/i })).toBeInTheDocument();
 		const inboxIcon = document.querySelector('.lucide-inbox');
 		expect(inboxIcon).toBeInTheDocument();
@@ -281,5 +291,25 @@ describe('HeaderRightSection', () => {
 		// Verify feedback button is not present
 		const feedbackIcon = document.querySelector('.lucide-square-pen');
 		expect(feedbackIcon).not.toBeInTheDocument();
+	});
+
+	it('should open cloud cost modal for community users', async () => {
+		mockUseGetTenantLicense.mockReturnValue({
+			isCloudUser: false,
+			isEnterpriseSelfHostedUser: false,
+			isCommunityUser: true,
+			isCommunityEnterpriseUser: false,
+		});
+
+		const user = userEvent.setup();
+		render(<HeaderRightSection {...defaultProps} />);
+
+		const cloudCostButton = screen.getByRole('button', { name: /cloud cost/i });
+		await user.click(cloudCostButton);
+
+		expect(mockLogEvent).toHaveBeenCalledWith('Cloud Cost: Clicked', {
+			page: mockLocation.pathname,
+		});
+		expect(screen.getByTestId('cloud-cost-modal')).toBeInTheDocument();
 	});
 });

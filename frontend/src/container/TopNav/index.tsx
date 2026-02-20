@@ -33,6 +33,11 @@ function TopNav(): JSX.Element | null {
 		[location.pathname],
 	);
 
+	const isHomePage = useMemo(
+		() => matchPath(location.pathname, { path: ROUTES.HOME, exact: true }),
+		[location.pathname],
+	);
+
 	const isNewAlertsLandingPage = useMemo(
 		() =>
 			matchPath(location.pathname, { path: ROUTES.ALERTS_NEW, exact: true }) &&
@@ -40,8 +45,25 @@ function TopNav(): JSX.Element | null {
 		[location.pathname, location.search],
 	);
 
-	if (isSignUpPage || isDisabled || isRouteToSkip || isNewAlertsLandingPage) {
+	if (
+		isSignUpPage ||
+		isDisabled ||
+		(isRouteToSkip && !isHomePage) ||
+		isNewAlertsLandingPage
+	) {
 		return null;
+	}
+
+	if (isHomePage) {
+		return (
+			<div className="top-nav-container">
+				<HeaderRightSection
+					enableShare
+					enableFeedback
+					enableAnnouncements={false}
+				/>
+			</div>
+		);
 	}
 
 	return !isRouteToSkip ? (
