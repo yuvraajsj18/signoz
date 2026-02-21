@@ -30,6 +30,11 @@ func newDashboardPublicUpsertCommand(flags *globalFlags, use, short, method stri
 			}
 			if cmd.Flags().Changed("enabled") {
 				payload["timeRangeEnabled"] = enabled
+				if enabled {
+					if _, ok := payload["defaultTimeRange"]; !ok {
+						payload["defaultTimeRange"] = "5m"
+					}
+				}
 			}
 			c, err := profileClient(flags, profile)
 			if err != nil {

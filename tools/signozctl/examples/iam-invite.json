@@ -1,4 +1,6 @@
 {
+  "name": "Agent User",
   "email": "user@example.com",
-  "role": "VIEWER"
+  "role": "ADMIN",
+  "frontendBaseUrl": "http://localhost:8080"
 }

@@ -1,3 +1,10 @@
 {
-  "name": "maintenance-window"
+  "name": "maintenance-window",
+  "description": "planned maintenance",
+  "schedule": {
+    "timezone": "UTC",
+    "startTime": "2026-02-21T02:00:00Z",
+    "endTime": "2026-02-21T03:00:00Z"
+  },
+  "alertIds": []
 }

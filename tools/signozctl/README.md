@@ -43,6 +43,12 @@ Rotate tokens explicitly when needed:
 ./signozctl query metrics --file examples/query-metrics-v5.json --profile local --output json
 ```
 
+Live tail logs via polling:
+
+```bash
+./signozctl query logs-tail --file examples/query-logs-v5.json --profile local --interval 2s --last 5m --output json
+```
+
 Relative time override without editing payload:
 
 ```bash
@@ -78,6 +84,21 @@ Span-level trace operations:
 
 ```bash
 ./signozctl dashboard create --file examples/dashboard-minimal.json --profile local --output json
+```
+
+Create an empty view quickly:
+
+```bash
+./signozctl dashboard view-create --title "Agent View" --description "created from flags" --profile local --output json
+```
+
+Browse and apply templates:
+
+```bash
+./signozctl dashboard templates list --output json
+./signozctl dashboard templates search host --output json
+./signozctl dashboard templates show hostmetrics --output json
+./signozctl dashboard templates apply hostmetrics --profile local --output json
 ```
 
 Dashboard public sharing:
@@ -125,7 +146,7 @@ Templates, schemas, and local validation for other domains:
 
 - `auth`: `login`, `status`, `refresh`, `logout`, `use`, `profiles`
 - `query`: traces/logs/metrics via `/api/v5/query_range`, plus services/dependency/error commands
-- `dashboard`: `list`, `create`, `update`, `delete`
+- `dashboard`: `list`, `create`, `view-create`, `update`, `delete`, `templates`
 - `alerts`: alerts/rules/channels/route-policies/downtime + test helpers
 - `iam`: invite, roles, api-keys, users
 - `system`: health/version/usage/disks/raw-export/ttl/apdex

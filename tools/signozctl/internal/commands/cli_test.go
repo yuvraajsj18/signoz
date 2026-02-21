@@ -563,6 +563,9 @@ func TestDashboardPublicCreateEnabledFlagWithoutFile(t *testing.T) {
 	if payload["timeRangeEnabled"] != true {
 		t.Fatalf("expected timeRangeEnabled=true, got %#v", payload["timeRangeEnabled"])
 	}
+	if payload["defaultTimeRange"] != "5m" {
+		t.Fatalf("expected defaultTimeRange=5m when enabling without file, got %#v", payload["defaultTimeRange"])
+	}
 }
 
 func TestQueryTraceRootReturnsRootSpanID(t *testing.T) {
@@ -937,6 +940,36 @@ func TestDocsFetchReturnsMarkdownLikeContent(t *testing.T) {
 	}
 }
 
+func TestDocsFetchConvertsHeadingsLinksAndCode(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/docs/install/quickstart", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `<html><body><main><h1>Quickstart</h1><p>See <a href="/docs/install">install docs</a>.</p><pre><code>docker compose up -d</code></pre></main></body></html>`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	t.Setenv("SIGNOZCTL_DOCS_HOST", u.Hostname())
+
+	stdout, stderr, err := runCLI(t, "--output", "json", "docs", "fetch", server.URL+"/docs/install/quickstart")
+	if err != nil {
+		t.Fatalf("expected docs fetch to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "# Quickstart") {
+		t.Fatalf("expected markdown heading, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "[install docs](/docs/install)") {
+		t.Fatalf("expected markdown link, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "```") || !strings.Contains(stdout, "docker compose up -d") {
+		t.Fatalf("expected fenced code block, got %q", stdout)
+	}
+}
+
 func TestAuthRefreshRotatesAndPersistsTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
@@ -1082,5 +1115,274 @@ func TestDocsSearchRefreshIndexBypassesCache(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "trace-waterfall") {
 		t.Fatalf("expected refreshed result after --refresh-index, got %q", stdout)
+	}
+}
+
+func TestDashboardTemplatesListSearchShow(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/templates/index.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+  "templates": [
+    {"id":"hostmetrics","name":"Host Metrics","description":"Node host dashboard","source":"hostmetrics.json","tags":["infra","host"]},
+    {"id":"k8s-overview","name":"K8s Overview","description":"Kubernetes overview","source":"k8s-overview.json","tags":["k8s"]}
+  ]
+}`)
+	})
+	mux.HandleFunc("/templates/hostmetrics.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"title":"Host Metrics","widgets":[],"layout":[],"variables":{}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_INDEX_URL", server.URL+"/templates/index.json")
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_BASE_URL", server.URL+"/templates")
+
+	stdout, stderr, err := runCLI(t, "--output", "json", "dashboard", "templates", "list")
+	if err != nil {
+		t.Fatalf("templates list failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "hostmetrics") || !strings.Contains(stdout, "k8s-overview") {
+		t.Fatalf("expected template IDs in list output, got %q", stdout)
+	}
+
+	stdout, stderr, err = runCLI(t, "--output", "json", "dashboard", "templates", "search", "host")
+	if err != nil {
+		t.Fatalf("templates search failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "hostmetrics") {
+		t.Fatalf("expected hostmetrics in search output, got %q", stdout)
+	}
+	if strings.Contains(stdout, "k8s-overview") {
+		t.Fatalf("did not expect k8s-overview for host query, got %q", stdout)
+	}
+
+	stdout, stderr, err = runCLI(t, "--output", "json", "dashboard", "templates", "show", "hostmetrics")
+	if err != nil {
+		t.Fatalf("templates show failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"title":"Host Metrics"`) {
+		t.Fatalf("expected template JSON in show output, got %q", stdout)
+	}
+}
+
+func TestDashboardTemplatesApplyCreatesDashboard(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/templates/index.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"templates":[{"id":"hostmetrics","name":"Host Metrics","source":"hostmetrics.json"}]}`)
+	})
+	mux.HandleFunc("/templates/hostmetrics.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"title":"Host Metrics","widgets":[],"layout":[],"variables":{}}`)
+	})
+
+	var createdBody string
+	mux.HandleFunc("/api/v1/dashboards", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		createdBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-tpl-1"}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_INDEX_URL", server.URL+"/templates/index.json")
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_BASE_URL", server.URL+"/templates")
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "templates", "apply", "hostmetrics", "--profile", "local",
+	)
+	if err != nil {
+		t.Fatalf("templates apply failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(createdBody, `"title":"Host Metrics"`) {
+		t.Fatalf("expected dashboard payload from template, got %q", createdBody)
+	}
+	if !strings.Contains(stdout, `"dash-tpl-1"`) {
+		t.Fatalf("expected created dashboard response, got %q", stdout)
+	}
+}
+
+func TestQueryLogsTailPollsAndPrintsRows(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	payloadPath := filepath.Join(tmpDir, "logs-query.json")
+	if err := os.WriteFile(payloadPath, []byte(`{"schemaVersion":"v1","requestType":"raw","compositeQuery":{"queries":[{"type":"builder_query","spec":{"name":"A","signal":"logs","limit":10}}]}}`), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	call := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v5/query_range", func(w http.ResponseWriter, r *http.Request) {
+		call++
+		w.Header().Set("Content-Type", "application/json")
+		if call == 1 {
+			_, _ = io.WriteString(w, `{"status":"success","data":{"data":{"results":[{"rows":[{"data":{"body":"log-1","ts":"1"}}]}]}}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"success","data":{"data":{"results":[{"rows":[{"data":{"body":"log-1","ts":"1"}},{"data":{"body":"log-2","ts":"2"}}]}]}}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"query", "logs-tail",
+		"--file", payloadPath,
+		"--profile", "local",
+		"--interval", "10ms",
+		"--iterations", "2",
+		"--last", "5m",
+	)
+	if err != nil {
+		t.Fatalf("logs-tail failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "log-1") || !strings.Contains(stdout, "log-2") {
+		t.Fatalf("expected tailed logs in output, got %q", stdout)
+	}
+	// log-1 should be emitted only once due to dedupe.
+	if strings.Count(stdout, "log-1") != 1 {
+		t.Fatalf("expected dedupe for log-1, got output=%q", stdout)
+	}
+}
+
+func TestAuthUseMissingProfileReturnsStructuredError(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{"activeProfile":"default","profiles":{}}`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "auth", "use", "missing")
+	if err == nil {
+		t.Fatalf("expected auth use missing profile to fail")
+	}
+	if !strings.Contains(stderr, "class=input_validation") || !strings.Contains(stderr, "code=profile_not_found") {
+		t.Fatalf("expected structured profile_not_found error, got %q", stderr)
+	}
+}
+
+func TestViewCreateWithServiceNameBuildsSavedViewPayload(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	var body string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/explorer/views", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":"view-1"}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"view", "create",
+		"--profile", "local",
+		"--name", "Catalog Node Saved View",
+		"--source-page", "traces",
+		"--service-name", "catalog-node",
+	)
+	if err != nil {
+		t.Fatalf("view create failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"view-1"`) {
+		t.Fatalf("expected view id response, got %q", stdout)
+	}
+	if !strings.Contains(body, `"sourcePage":"traces"`) {
+		t.Fatalf("expected traces sourcePage in request body, got %q", body)
+	}
+	if !strings.Contains(body, `"name":"Catalog Node Saved View"`) {
+		t.Fatalf("expected name in request body, got %q", body)
+	}
+	if !strings.Contains(body, `service.name = 'catalog-node'`) {
+		t.Fatalf("expected service.name filter in request body, got %q", body)
+	}
+}
+
+func TestViewCRUDEndpoints(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	viewFile := filepath.Join(tmpDir, "view.json")
+	viewPayload := `{"name":"V","sourcePage":"traces","compositeQuery":{"queryType":"builder","panelType":"list","unit":"none","builderQueries":{"A":{"queryName":"A","dataSource":"traces","aggregateOperator":"count","aggregateAttribute":{"key":"","type":"","dataType":""},"timeAggregation":"rate","spaceAggregation":"sum","stepInterval":60,"filter":{"expression":"service.name = 'catalog-node'"},"groupBy":[],"expression":"A","disabled":false,"having":[],"limit":20,"orderBy":[],"legend":"","functions":[]}}},"extraData":"{}"}`
+	if err := os.WriteFile(viewFile, []byte(viewPayload), 0o644); err != nil {
+		t.Fatalf("write view payload: %v", err)
+	}
+
+	hits := []string{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/explorer/views", func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = io.WriteString(w, `{"status":"success","data":[]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"success","data":"view-1"}`)
+	})
+	mux.HandleFunc("/api/v1/explorer/views/view-1", func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, _, err := runCLI(t, "--config", cfgPath, "--output", "json", "view", "list", "--profile", "local", "--source-page", "traces")
+	if err != nil {
+		t.Fatalf("view list failed: %v", err)
+	}
+	_, _, err = runCLI(t, "--config", cfgPath, "--output", "json", "view", "create", "--profile", "local", "--file", viewFile)
+	if err != nil {
+		t.Fatalf("view create(file) failed: %v", err)
+	}
+	_, _, err = runCLI(t, "--config", cfgPath, "--output", "json", "view", "get", "view-1", "--profile", "local")
+	if err != nil {
+		t.Fatalf("view get failed: %v", err)
+	}
+	_, _, err = runCLI(t, "--config", cfgPath, "--output", "json", "view", "update", "view-1", "--profile", "local", "--file", viewFile)
+	if err != nil {
+		t.Fatalf("view update failed: %v", err)
+	}
+	_, _, err = runCLI(t, "--config", cfgPath, "--output", "json", "view", "delete", "view-1", "--profile", "local")
+	if err != nil {
+		t.Fatalf("view delete failed: %v", err)
+	}
+
+	if len(hits) != 5 {
+		t.Fatalf("expected 5 endpoint hits, got %d: %#v", len(hits), hits)
+	}
+	if !strings.Contains(hits[0], "GET /api/v1/explorer/views?sourcePage=traces") {
+		t.Fatalf("unexpected list endpoint hit: %s", hits[0])
 	}
 }

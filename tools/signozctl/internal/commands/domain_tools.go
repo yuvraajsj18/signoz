@@ -2,7 +2,6 @@ package commands
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
@@ -217,7 +216,7 @@ func dashboardTemplate(resource string) (map[string]any, error) {
 			"defaultTimeRange": "5m",
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported dashboard resource %q", resource)
+		return nil, errInvalidOption("dashboard resource", resource, "create|update|public-create|public-update")
 	}
 }
 
@@ -260,7 +259,7 @@ func dashboardSchema(resource string) (map[string]any, error) {
 			"optional": []string{"timeRangeEnabled", "defaultTimeRange"},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported dashboard resource %q", resource)
+		return nil, errInvalidOption("dashboard resource", resource, "create|update|public-create|public-update")
 	}
 }
 
@@ -283,7 +282,7 @@ func validateDashboardPayload(resource string, payload map[string]any) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("unsupported dashboard resource %q", resource)
+		return errInvalidOption("dashboard resource", resource, "create|update|public-create|public-update")
 	}
 	return nil
 }
@@ -299,6 +298,21 @@ func alertsTemplate(resource string) (map[string]any, error) {
 			"evalWindow":    "5m",
 			"frequency":     "1m",
 			"schemaVersion": "v1",
+			"condition": map[string]any{
+				"target":    0.5,
+				"matchType": "atleast_once",
+				"compareOp": ">",
+				"compositeQuery": map[string]any{
+					"queryType": "builder",
+					"builderQueries": map[string]any{
+						"A": map[string]any{
+							"queryName":         "A",
+							"dataSource":        "traces",
+							"aggregateOperator": "count",
+						},
+					},
+				},
+			},
 		}, nil
 	case "channel":
 		return map[string]any{
@@ -326,11 +340,16 @@ func alertsTemplate(resource string) (map[string]any, error) {
 				"timezone":  "UTC",
 				"startTime": "2026-02-21T02:00:00Z",
 				"endTime":   "2026-02-21T03:00:00Z",
+				"recurrence": map[string]any{
+					"repeatType": "daily",
+					"startTime":  "2026-02-21T02:00:00Z",
+					"duration":   "30m",
+				},
 			},
 			"alertIds": []string{},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported alerts resource %q", resource)
+		return nil, errInvalidOption("alerts resource", resource, "rule|channel|route-policy|downtime")
 	}
 }
 
@@ -341,6 +360,13 @@ func alertsSchema(resource string) (map[string]any, error) {
 			"resource": resource,
 			"required": []string{"alert", "alertType"},
 			"optional": []string{"description", "ruleType", "evalWindow", "frequency", "schemaVersion", "condition", "labels", "preferredChannels"},
+			"nestedHints": []string{
+				"condition.target",
+				"condition.matchType",
+				"condition.compareOp",
+				"condition.compositeQuery.queryType",
+				"condition.compositeQuery.builderQueries.<name>",
+			},
 		}, nil
 	case "channel":
 		return map[string]any{
@@ -359,9 +385,16 @@ func alertsSchema(resource string) (map[string]any, error) {
 			"resource": resource,
 			"required": []string{"name", "schedule"},
 			"optional": []string{"description", "alertIds"},
+			"nestedHints": []string{
+				"schedule.timezone",
+				"schedule.startTime",
+				"schedule.endTime",
+				"schedule.recurrence.repeatType",
+				"schedule.recurrence.duration",
+			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported alerts resource %q", resource)
+		return nil, errInvalidOption("alerts resource", resource, "rule|channel|route-policy|downtime")
 	}
 }
 
@@ -397,11 +430,23 @@ func validateAlertsPayload(resource string, payload map[string]any) error {
 		if _, ok := payload["name"].(string); !ok {
 			return signozerrors.NewInputValidationError("invalid_payload", "name is required and must be a string")
 		}
-		if _, ok := payload["schedule"].(map[string]any); !ok {
+		schedule, ok := payload["schedule"].(map[string]any)
+		if !ok {
 			return signozerrors.NewInputValidationError("invalid_payload", "schedule is required and must be an object")
 		}
+		_, hasStart := schedule["startTime"].(string)
+		_, hasEnd := schedule["endTime"].(string)
+		recurrence, hasRecurrence := schedule["recurrence"].(map[string]any)
+		if !(hasStart && hasEnd) && !hasRecurrence {
+			return signozerrors.NewInputValidationError("invalid_payload", "schedule requires either startTime/endTime or recurrence")
+		}
+		if hasRecurrence {
+			if _, ok := recurrence["repeatType"].(string); !ok {
+				return signozerrors.NewInputValidationError("invalid_payload", "schedule.recurrence.repeatType is required and must be a string")
+			}
+		}
 	default:
-		return fmt.Errorf("unsupported alerts resource %q", resource)
+		return errInvalidOption("alerts resource", resource, "rule|channel|route-policy|downtime")
 	}
 	return nil
 }
@@ -427,7 +472,7 @@ func iamTemplate(resource string) (map[string]any, error) {
 			"expiresInDays": 30,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported iam resource %q", resource)
+		return nil, errInvalidOption("iam resource", resource, "invite|role|api-key")
 	}
 }
 
@@ -440,7 +485,7 @@ func iamSchema(resource string) (map[string]any, error) {
 	case "api-key":
 		return map[string]any{"resource": resource, "required": []string{"name", "role"}, "optional": []string{"expiresInDays"}}, nil
 	default:
-		return nil, fmt.Errorf("unsupported iam resource %q", resource)
+		return nil, errInvalidOption("iam resource", resource, "invite|role|api-key")
 	}
 }
 
@@ -468,7 +513,7 @@ func validateIAMPayload(resource string, payload map[string]any) error {
 			return signozerrors.NewInputValidationError("invalid_payload", "role is required and must be a string")
 		}
 	default:
-		return fmt.Errorf("unsupported iam resource %q", resource)
+		return errInvalidOption("iam resource", resource, "invite|role|api-key")
 	}
 	return nil
 }
@@ -483,7 +528,7 @@ func loadPayloadFile(filePath string) (map[string]any, error) {
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("invalid JSON payload: %w", err)
+		return nil, errInvalidJSONPayload(err)
 	}
 	return payload, nil
 }

@@ -72,12 +72,15 @@ Implemented:
 15. Template/schema fidelity updates:
 - public dashboard payload aligned to `timeRangeEnabled/defaultTimeRange`
 - alerts and IAM templates/schemas validated against backend type expectations
+16. New agent-ergonomics surface:
+- `dashboard templates list/search/show/apply` (with env-overridable index/base URLs and GitHub tree fallback)
+- `dashboard view-create` convenience command
+- `query logs-tail` polling live-tail workflow with dedupe and relative window flags
 
 Not yet complete:
-1. Expand live integration coverage across alerts/iam/system flows (public sharing and trace helper flows are now covered)
-2. Continue tightening template/schema contracts for all nested endpoint payload variants (especially advanced alert rule condition payloads)
-3. Add docs fetch improvements for richer markdown conversion fidelity
-4. Add additional secret-storage backends (OS keychain/vault) beyond env-passphrase encrypted file mode
+1. Execute new live integration suite in your local Docker SigNoz env (`SIGNOZCTL_E2E=1`) for alerts/iam/system tests added in code
+2. Continue tightening template/schema contracts for edge payload variants and endpoint-version drift
+3. Add additional secret-storage backends (OS keychain/vault) beyond env-passphrase encrypted file mode
 
 ---
 

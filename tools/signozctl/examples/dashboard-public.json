@@ -1,3 +1,4 @@
 {
-  "isEnabled": true
+  "timeRangeEnabled": true,
+  "defaultTimeRange": "5m"
 }

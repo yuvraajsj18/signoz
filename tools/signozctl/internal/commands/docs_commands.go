@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -213,11 +214,11 @@ func fetchDocsURLs(ctx context.Context, sitemapURL string) ([]string, error) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, signozerrors.NewLocalError(signozerrors.ClassAPIUnavailable, 503, "docs_sitemap_fetch_failed", err.Error(), "check internet connectivity or override SIGNOZCTL_DOCS_SITEMAP_URL")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("failed to fetch sitemap: status=%d", resp.StatusCode)
+		return nil, signozerrors.NewLocalError(signozerrors.ClassAPIUnavailable, resp.StatusCode, "docs_sitemap_fetch_failed", "failed to fetch sitemap: status="+strconv.Itoa(resp.StatusCode), "retry or use --refresh-index later")
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -225,7 +226,7 @@ func fetchDocsURLs(ctx context.Context, sitemapURL string) ([]string, error) {
 	}
 	var urlSet sitemapURLSet
 	if err := xml.Unmarshal(body, &urlSet); err != nil {
-		return nil, fmt.Errorf("invalid sitemap XML: %w", err)
+		return nil, signozerrors.NewInputValidationError("invalid_sitemap_xml", "invalid sitemap XML: "+err.Error())
 	}
 	out := make([]string, 0, len(urlSet.URLs))
 	for _, u := range urlSet.URLs {
@@ -329,11 +330,11 @@ func fetchDocsMarkdown(ctx context.Context, rawURL string) (string, error) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", signozerrors.NewLocalError(signozerrors.ClassAPIUnavailable, 503, "docs_fetch_failed", err.Error(), "check internet connectivity or provided docs URL")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("failed to fetch docs URL: status=%d", resp.StatusCode)
+		return "", signozerrors.NewLocalError(signozerrors.ClassAPIUnavailable, resp.StatusCode, "docs_fetch_failed", "failed to fetch docs URL: status="+strconv.Itoa(resp.StatusCode), "verify docs URL and try again")
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -348,14 +349,33 @@ func htmlToMarkdown(s string) string {
 	s = reScript.ReplaceAllString(s, "")
 	reStyle := regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
 	s = reStyle.ReplaceAllString(s, "")
-	reTagBreak := regexp.MustCompile(`(?i)</(h1|h2|h3|h4|h5|h6|p|div|section|article|li|ul|ol|main|pre|code|tr)>`)
+
+	// Heading conversion first preserves hierarchy context.
+	for i := 6; i >= 1; i-- {
+		re := regexp.MustCompile(`(?is)<h` + strconv.Itoa(i) + `[^>]*>(.*?)</h` + strconv.Itoa(i) + `>`)
+		s = re.ReplaceAllString(s, "\n"+strings.Repeat("#", i)+" $1\n")
+	}
+	reCodeBlock := regexp.MustCompile(`(?is)<pre[^>]*><code[^>]*>(.*?)</code></pre>`)
+	s = reCodeBlock.ReplaceAllString(s, "\n```\n$1\n```\n")
+	reInlineCode := regexp.MustCompile(`(?is)<code[^>]*>(.*?)</code>`)
+	s = reInlineCode.ReplaceAllString(s, "`$1`")
+	reLink := regexp.MustCompile(`(?is)<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>`)
+	s = reLink.ReplaceAllString(s, "[$2]($1)")
+	reBold := regexp.MustCompile(`(?is)<(strong|b)[^>]*>(.*?)</(strong|b)>`)
+	s = reBold.ReplaceAllString(s, "**$2**")
+	reItalic := regexp.MustCompile(`(?is)<(em|i)[^>]*>(.*?)</(em|i)>`)
+	s = reItalic.ReplaceAllString(s, "*$2*")
+	reLi := regexp.MustCompile(`(?is)<li[^>]*>(.*?)</li>`)
+	s = reLi.ReplaceAllString(s, "\n- $1")
+	reTagBreak := regexp.MustCompile(`(?i)</(p|div|section|article|ul|ol|main|pre|tr|table|blockquote)>`)
 	s = reTagBreak.ReplaceAllString(s, "\n")
-	reLi := regexp.MustCompile(`(?i)<li[^>]*>`)
-	s = reLi.ReplaceAllString(s, "- ")
 	reTags := regexp.MustCompile(`(?is)<[^>]+>`)
-	s = reTags.ReplaceAllString(s, "")
+	s = reTags.ReplaceAllString(s, " ")
 	s = html.UnescapeString(s)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\t", " ")
+	reSpaces := regexp.MustCompile(`[ ]{2,}`)
+	s = reSpaces.ReplaceAllString(s, " ")
 	reBlank := regexp.MustCompile(`\n{3,}`)
 	s = reBlank.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)

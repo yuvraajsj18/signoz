@@ -39,6 +39,7 @@ func NewRootCommand() *cobra.Command {
 
 	cmd.AddCommand(newAuthCommand(flags))
 	cmd.AddCommand(newQueryCommand(flags))
+	cmd.AddCommand(newViewCommand(flags))
 	cmd.AddCommand(newDashboardCommand(flags))
 	cmd.AddCommand(newAlertsCommand(flags))
 	cmd.AddCommand(newIAMCommand(flags))
@@ -233,7 +234,7 @@ func newAuthCommand(flags *globalFlags) *cobra.Command {
 				return err
 			}
 			if _, ok := cfg.Profiles[args[0]]; !ok {
-				return fmt.Errorf("profile not found: %s", args[0])
+				return errProfileNotFound(args[0])
 			}
 			cfg.ActiveProfile = args[0]
 			if err := config.Save(flags.ConfigPath, cfg); err != nil {
@@ -284,6 +285,7 @@ func newQueryCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(newQueryFileCommand(flags, "traces", "/api/v5/query_range", "Run a traces query payload against /api/v5/query_range"))
 	cmd.AddCommand(newQueryFileCommand(flags, "logs", "/api/v5/query_range", "Run a logs query payload against /api/v5/query_range"))
 	cmd.AddCommand(newQueryFileCommand(flags, "metrics", "/api/v5/query_range", "Run a metrics query payload against /api/v5/query_range"))
+	cmd.AddCommand(newLogsTailCommand(flags))
 	cmd.AddCommand(newProfileGetByIDCommand(flags, "trace <trace-id>", "Get trace summary by trace ID", "/api/v1/traces/%s"))
 	cmd.AddCommand(newTraceRootCommand(flags))
 	cmd.AddCommand(newTraceWaterfallCommand(flags))
@@ -347,7 +349,7 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 				}
 				raw, err = applyTimeRange(raw, start, end)
 				if err != nil {
-					return fmt.Errorf("failed to apply --last time range: %w", err)
+					return signozerrors.NewInputValidationError("invalid_payload", "failed to apply --last time range: "+err.Error())
 				}
 			}
 			c, err := profileClient(flags, localProfile)
@@ -376,6 +378,7 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(newDashboardTemplateCommand(flags))
 	cmd.AddCommand(newDashboardSchemaCommand(flags))
 	cmd.AddCommand(newDashboardValidateCommand(flags))
+	cmd.AddCommand(newDashboardTemplatesCommand(flags))
 
 	var filePath string
 	var localProfile string
@@ -404,6 +407,39 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	createCmd.Flags().StringVar(&filePath, "file", "", "dashboard JSON file")
 	createCmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
 	cmd.AddCommand(createCmd)
+
+	var viewTitle string
+	var viewDescription string
+	var viewProfile string
+	viewCreateCmd := &cobra.Command{
+		Use:   "view-create",
+		Short: "Create an empty dashboard view with title/description flags",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(viewTitle) == "" {
+				return signozerrors.NewMissingRequiredFlagError("--title")
+			}
+			c, err := profileClient(flags, viewProfile)
+			if err != nil {
+				return err
+			}
+			payload := map[string]any{
+				"title":       viewTitle,
+				"description": viewDescription,
+				"widgets":     []any{},
+				"layout":      []any{},
+				"variables":   map[string]any{},
+			}
+			var resp map[string]any
+			if err := c.PostJSON(cmd.Context(), "/api/v1/dashboards", payload, &resp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
+		},
+	}
+	viewCreateCmd.Flags().StringVar(&viewTitle, "title", "", "dashboard title")
+	viewCreateCmd.Flags().StringVar(&viewDescription, "description", "", "dashboard description")
+	viewCreateCmd.Flags().StringVar(&viewProfile, "profile", "", "profile name override")
+	cmd.AddCommand(viewCreateCmd)
 
 	var listProfile string
 	listCmd := &cobra.Command{
@@ -555,7 +591,7 @@ func fetchOrgID(ctx context.Context, c *client.Client, email, host string) (stri
 		return "", err
 	}
 	if len(ctxResp.Data.Orgs) == 0 {
-		return "", errors.New("no organizations returned by /api/v2/sessions/context; pass --org-id explicitly")
+		return "", signozerrors.NewInputValidationError("missing_org_context", "no organizations returned by /api/v2/sessions/context; pass --org-id explicitly")
 	}
 	return ctxResp.Data.Orgs[0].ID, nil
 }
@@ -572,7 +608,7 @@ func rotateSession(ctx context.Context, host, accessToken, refreshToken string) 
 		return "", "", err
 	}
 	if rotateResp.Data.AccessToken == "" || rotateResp.Data.RefreshToken == "" {
-		return "", "", fmt.Errorf("rotate session response missing tokens")
+		return "", "", signozerrors.NewAuthRequiredError("invalid_rotate_response", "rotate session response missing tokens")
 	}
 	return rotateResp.Data.AccessToken, rotateResp.Data.RefreshToken, nil
 }
@@ -596,7 +632,7 @@ func currentProfile(cfg *config.File, explicit string) (config.Profile, string, 
 	}
 	prof, ok := cfg.Profiles[name]
 	if !ok {
-		return config.Profile{}, "", fmt.Errorf("profile not found: %s", name)
+		return config.Profile{}, "", errProfileNotFound(name)
 	}
 	return prof, name, nil
 }
@@ -611,7 +647,7 @@ func loadProfileFromFlags(flags *globalFlags, localProfile string) (*config.File
 		return nil, config.Profile{}, "", err
 	}
 	if prof.Host == "" {
-		return nil, config.Profile{}, "", fmt.Errorf("profile %s has no host; run auth login with --host", name)
+		return nil, config.Profile{}, "", signozerrors.NewInputValidationError("profile_missing_host", fmt.Sprintf("profile %s has no host; run auth login with --host", name))
 	}
 	return cfg, prof, name, nil
 }
@@ -622,7 +658,7 @@ func hostOrProfileHost(flags *globalFlags, hostFlag string) (string, error) {
 	}
 	_, prof, _, err := loadProfileFromFlags(flags, "")
 	if err != nil {
-		return "", signozerrors.NewInputValidationError("missing_host", "missing host: use --host or authenticate with a profile")
+		return "", errMissingHost()
 	}
 	return prof.Host, nil
 }

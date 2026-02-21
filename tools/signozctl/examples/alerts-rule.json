@@ -1,3 +1,9 @@
 {
-  "name": "cpu-high-rule"
+  "alert": "high-error-rate",
+  "alertType": "TRACES_BASED_ALERT",
+  "description": "sample rule",
+  "ruleType": "threshold_rule",
+  "evalWindow": "5m",
+  "frequency": "1m",
+  "schemaVersion": "v1"
 }

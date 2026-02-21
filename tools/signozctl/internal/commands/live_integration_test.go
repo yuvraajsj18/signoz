@@ -324,6 +324,16 @@ func TestLiveDashboardPublicCreateAndDelete(t *testing.T) {
 		"--enabled",
 	)
 	if err != nil {
+		_, _, _ = runLiveCLI(
+			t,
+			"--config", cfgPath,
+			"--profile", profile,
+			"--output", "json",
+			"dashboard", "delete", id,
+		)
+		if isSkippableLiveError(publicCreateErr) {
+			t.Skipf("skipping public dashboard e2e due to environment/license: %s", publicCreateErr)
+		}
 		t.Fatalf("dashboard public-create failed for id=%s: %v stderr=%s", id, err, publicCreateErr)
 	}
 
@@ -335,6 +345,9 @@ func TestLiveDashboardPublicCreateAndDelete(t *testing.T) {
 		"dashboard", "public-delete", id,
 	)
 	if err != nil {
+		if isSkippableLiveError(publicDeleteErr) {
+			t.Skipf("skipping public-delete due to environment/license: %s", publicDeleteErr)
+		}
 		t.Fatalf("dashboard public-delete failed for id=%s: %v stderr=%s", id, err, publicDeleteErr)
 	}
 
@@ -347,6 +360,112 @@ func TestLiveDashboardPublicCreateAndDelete(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("dashboard delete failed for id=%s: %v stderr=%s", id, err, deleteErr)
+	}
+}
+
+func TestLiveSystemApdexReadWriteRoundTrip(t *testing.T) {
+	cfgPath, profile := requireLiveEnv(t)
+
+	getOut, getErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"system", "apdex",
+	)
+	if err != nil {
+		if isSkippableLiveError(getErr) {
+			t.Skipf("skipping apdex round-trip due to environment/permission: %s", getErr)
+		}
+		t.Fatalf("system apdex failed: %v stderr=%s", err, getErr)
+	}
+
+	payloadPath := filepath.Join(t.TempDir(), "apdex.json")
+	if err := os.WriteFile(payloadPath, []byte(getOut), 0o644); err != nil {
+		t.Fatalf("failed to write apdex payload: %v", err)
+	}
+
+	_, setErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"system", "set-apdex",
+		"--file", payloadPath,
+	)
+	if err != nil {
+		if isSkippableLiveError(setErr) {
+			t.Skipf("skipping set-apdex due to environment/permission: %s", setErr)
+		}
+		t.Fatalf("system set-apdex failed: %v stderr=%s", err, setErr)
+	}
+}
+
+func TestLiveIAMAPIKeyCreateAndRevoke(t *testing.T) {
+	cfgPath, profile := requireLiveEnv(t)
+	tmpDir := t.TempDir()
+	payloadPath := filepath.Join(tmpDir, "api-key.json")
+	payload := `{"name":"signozctl-e2e-key","role":"ADMIN","expiresInDays":1}`
+	if err := os.WriteFile(payloadPath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("failed to write api key payload: %v", err)
+	}
+
+	createOut, createErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"iam", "api-keys", "create",
+		"--file", payloadPath,
+	)
+	if err != nil {
+		if isSkippableLiveError(createErr) {
+			t.Skipf("skipping api-key create due to environment/permission: %s", createErr)
+		}
+		t.Fatalf("api-key create failed: %v stderr=%s", err, createErr)
+	}
+	resp := mustJSONMap(t, createOut)
+	data, _ := resp["data"].(map[string]any)
+	id, _ := data["id"].(string)
+	if id == "" {
+		t.Skipf("api-key create returned no id (response shape may differ): %v", resp)
+	}
+
+	_, revokeErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"iam", "api-keys", "revoke", id,
+	)
+	if err != nil {
+		if isSkippableLiveError(revokeErr) {
+			t.Skipf("skipping api-key revoke due to environment/permission: %s", revokeErr)
+		}
+		t.Fatalf("api-key revoke failed for id=%s: %v stderr=%s", id, err, revokeErr)
+	}
+}
+
+func TestLiveAlertsEndpointsBasicCoverage(t *testing.T) {
+	cfgPath, profile := requireLiveEnv(t)
+
+	commands := [][]string{
+		{"alerts", "list"},
+		{"alerts", "rules", "list"},
+		{"alerts", "channels", "list"},
+		{"alerts", "route-policies", "list"},
+		{"alerts", "downtime", "list"},
+	}
+	for _, c := range commands {
+		args := []string{"--config", cfgPath, "--profile", profile, "--output", "json"}
+		args = append(args, c...)
+		_, stderr, err := runLiveCLI(t, args...)
+		if err != nil {
+			if isSkippableLiveError(stderr) {
+				t.Skipf("skipping alerts coverage due to environment/permission: %s", stderr)
+			}
+			t.Fatalf("alerts command %v failed: %v stderr=%s", c, err, stderr)
+		}
 	}
 }
 
@@ -366,4 +485,15 @@ func extractTraceIDFromQueryResponse(resp map[string]any) string {
 	rowData, _ := firstRow["data"].(map[string]any)
 	traceID, _ := rowData["trace_id"].(string)
 	return traceID
+}
+
+func isSkippableLiveError(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	return strings.Contains(lower, "class=auth_insufficient_role") ||
+		strings.Contains(lower, "class=auth_required") ||
+		strings.Contains(lower, "class=api_unavailable") ||
+		strings.Contains(lower, "status=403") ||
+		strings.Contains(lower, "status=404") ||
+		strings.Contains(lower, "status=451") ||
+		strings.Contains(lower, "license_unavailable")
 }

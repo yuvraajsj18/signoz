@@ -2,7 +2,6 @@ package commands
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -152,7 +151,7 @@ func buildQueryTemplate(signal string) (map[string]any, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported signal %q: use traces|logs|metrics", signal)
+		return nil, errInvalidOption("signal", signal, "traces|logs|metrics")
 	}
 }
 
@@ -201,14 +200,14 @@ func buildQuerySchema(signal string) (map[string]any, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported signal %q: use traces|logs|metrics", signal)
+		return nil, errInvalidOption("signal", signal, "traces|logs|metrics")
 	}
 }
 
 func decodePayload(raw []byte) (map[string]any, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("invalid JSON payload: %w", err)
+		return nil, errInvalidJSONPayload(err)
 	}
 	return payload, nil
 }

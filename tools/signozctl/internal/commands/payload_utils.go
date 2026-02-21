@@ -2,7 +2,6 @@ package commands
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 )
 
@@ -16,7 +15,7 @@ func loadOptionalJSONPayload(filePath string) (map[string]any, error) {
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("invalid JSON payload: %w", err)
+		return nil, errInvalidJSONPayload(err)
 	}
 	if payload == nil {
 		payload = map[string]any{}

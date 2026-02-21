@@ -2,10 +2,10 @@ package commands
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
 	"github.com/SigNoz/signoz/tools/signozctl/internal/client"
+	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +27,7 @@ func newTraceRootCommand(flags *globalFlags) *cobra.Command {
 			}
 			spanID := firstSpanID(resp)
 			if spanID == "" {
-				return fmt.Errorf("root span id not found for trace %s", args[0])
+				return signozerrors.NewInputValidationError("trace_root_not_found", "root span id not found for trace "+args[0])
 			}
 			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
 				"traceId":    args[0],
