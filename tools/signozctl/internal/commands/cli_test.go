@@ -960,6 +960,93 @@ func TestDashboardTemplateSchemaValidate(t *testing.T) {
 	}
 }
 
+func TestDashboardApplyUpdatesByTitle(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	payloadPath := filepath.Join(tmpDir, "dash-apply.json")
+	if err := os.WriteFile(payloadPath, []byte(`{"title":"My Dash","description":"from-apply","widgets":[],"layout":[],"variables":{}}`), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	putCalls := 0
+	postCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":[{"id":"dash-1","data":{"title":"My Dash"}}]}`)
+			return
+		}
+		if r.Method == http.MethodPost {
+			postCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-new"}}`)
+			return
+		}
+	})
+	mux.HandleFunc("/api/v1/dashboards/dash-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1"}}`)
+			return
+		}
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "dashboard", "apply", "--profile", "local", "--file", payloadPath)
+	if err != nil {
+		t.Fatalf("dashboard apply failed: %v stderr=%s", err, stderr)
+	}
+	if putCalls != 1 || postCalls != 0 {
+		t.Fatalf("expected update path only (put=1 post=0), got put=%d post=%d", putCalls, postCalls)
+	}
+	if !strings.Contains(stdout, `"updated"`) {
+		t.Fatalf("expected updated mode in output, got %q", stdout)
+	}
+}
+
+func TestDashboardUpdateShowNormalizedDiff(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	payloadPath := filepath.Join(tmpDir, "dash-update.json")
+	if err := os.WriteFile(payloadPath, []byte(`{"title":"Dash","description":"before","widgets":[],"layout":[],"variables":{},"extraClientOnly":"x"}`), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards/dash-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("expected PUT, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// server-normalized response drops extraClientOnly and updates description
+		_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1","data":{"title":"Dash","description":"normalized","widgets":[],"layout":[],"variables":{}}}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "update", "dash-1", "--profile", "local", "--file", payloadPath, "--show-normalized-diff",
+	)
+	if err != nil {
+		t.Fatalf("dashboard update failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"normalizedDiff"`) || !strings.Contains(stdout, `"extraClientOnly"`) {
+		t.Fatalf("expected normalizedDiff in output, got %q", stdout)
+	}
+}
+
 func TestDashboardCapabilitiesOutputsContracts(t *testing.T) {
 	stdout, stderr, err := runCLI(t, "--output", "json", "dashboard", "capabilities")
 	if err != nil {
@@ -1655,6 +1742,51 @@ func TestQueryLogsTailPollsAndPrintsRows(t *testing.T) {
 	}
 }
 
+func TestQueryLogsTailWithoutFileUsesDefaultTemplate(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	call := 0
+	var postedPayload string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v5/query_range", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		postedPayload = string(body)
+		call++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"data":{"results":[{"rows":[{"data":{"body":"log-default","ts":"1"}}]}]}}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"query", "logs-tail",
+		"--profile", "local",
+		"--interval", "10ms",
+		"--iterations", "1",
+		"--last", "5m",
+	)
+	if err != nil {
+		t.Fatalf("logs-tail without file failed: %v stderr=%s", err, stderr)
+	}
+	if call != 1 {
+		t.Fatalf("expected 1 query_range call, got %d", call)
+	}
+	if !strings.Contains(postedPayload, `"requestType":"raw"`) || !strings.Contains(postedPayload, `"signal":"logs"`) {
+		t.Fatalf("expected default logs template payload, got %q", postedPayload)
+	}
+	if !strings.Contains(stdout, "log-default") {
+		t.Fatalf("expected tailed logs in output, got %q", stdout)
+	}
+}
+
 func TestAuthUseMissingProfileReturnsStructuredError(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")
@@ -1779,6 +1911,107 @@ func TestViewCRUDEndpoints(t *testing.T) {
 	}
 }
 
+func TestViewApplyUpdatesByNameAndSourcePage(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	viewFile := filepath.Join(tmpDir, "view-apply.json")
+	viewPayload := `{"name":"My View","sourcePage":"traces","compositeQuery":{"queryType":"builder","panelType":"list","unit":"none","builderQueries":{"A":{"queryName":"A","dataSource":"traces","aggregateOperator":"count","aggregateAttribute":{"key":"","type":"","dataType":""},"timeAggregation":"rate","spaceAggregation":"sum","stepInterval":60,"expression":"A"}}},"extraData":"{}"}`
+	if err := os.WriteFile(viewFile, []byte(viewPayload), 0o644); err != nil {
+		t.Fatalf("write view payload: %v", err)
+	}
+	putCalls := 0
+	postCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/explorer/views", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":[{"id":"view-1","name":"My View","sourcePage":"traces"}]}`)
+			return
+		}
+		if r.Method == http.MethodPost {
+			postCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":"view-new"}`)
+			return
+		}
+	})
+	mux.HandleFunc("/api/v1/explorer/views/view-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"view-1"}}`)
+			return
+		}
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	stdout, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "view", "apply", "--profile", "local", "--file", viewFile)
+	if err != nil {
+		t.Fatalf("view apply failed: %v stderr=%s", err, stderr)
+	}
+	if putCalls != 1 || postCalls != 0 {
+		t.Fatalf("expected update path only (put=1 post=0), got put=%d post=%d", putCalls, postCalls)
+	}
+	if !strings.Contains(stdout, `"updated"`) {
+		t.Fatalf("expected updated mode in output, got %q", stdout)
+	}
+}
+
+func TestAlertsRulesApplyUpdatesByAlertName(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	rulePath := filepath.Join(tmpDir, "rule-apply.json")
+	rulePayload := `{"alert":"high-error-rate","alertType":"TRACES_BASED_ALERT","condition":{"target":0.5},"preferredChannels":["email-channel"]}`
+	if err := os.WriteFile(rulePath, []byte(rulePayload), 0o644); err != nil {
+		t.Fatalf("write rule payload: %v", err)
+	}
+
+	putCalls := 0
+	postCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/rules", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"rules":[{"id":"rule-1","alert":"high-error-rate"}]}}`)
+			return
+		}
+		if r.Method == http.MethodPost {
+			postCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"rule-new"}}`)
+			return
+		}
+	})
+	mux.HandleFunc("/api/v1/rules/rule-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			putCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"rule-1"}}`)
+			return
+		}
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	stdout, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "alerts", "rules", "apply", "--profile", "local", "--file", rulePath)
+	if err != nil {
+		t.Fatalf("alerts rules apply failed: %v stderr=%s", err, stderr)
+	}
+	if putCalls != 1 || postCalls != 0 {
+		t.Fatalf("expected update path only (put=1 post=0), got put=%d post=%d", putCalls, postCalls)
+	}
+	if !strings.Contains(stdout, `"updated"`) {
+		t.Fatalf("expected updated mode in output, got %q", stdout)
+	}
+}
+
 func TestViewTemplateSchemaValidate(t *testing.T) {
 	stdout, stderr, err := runCLI(t, "--output", "json", "view", "template", "--source-page", "traces", "--service-name", "catalog-node")
 	if err != nil {
@@ -1812,5 +2045,159 @@ func TestViewTemplateSchemaValidate(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"valid":true`) {
 		t.Fatalf("expected valid=true, got %q", stdout)
+	}
+}
+
+func TestQuerySchemaJSONSchemaFormat(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--output", "json", "query", "schema", "--signal", "traces", "--format", "json-schema")
+	if err != nil {
+		t.Fatalf("query schema --format json-schema failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"$schema"`, `"type":"object"`, `"properties"`, `"requestType"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in json schema output, got %q", expected, stdout)
+		}
+	}
+}
+
+func TestQueryFieldsOperatorsAndLint(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--output", "json", "query", "fields", "--signal", "traces")
+	if err != nil {
+		t.Fatalf("query fields failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"signal":"traces"`, `"service.name"`, `"hasError"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in query fields output, got %q", expected, stdout)
+		}
+	}
+
+	stdout, stderr, err = runCLI(t, "--output", "json", "query", "operators", "--signal", "traces", "--field", "hasError")
+	if err != nil {
+		t.Fatalf("query operators failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"field":"hasError"`, `"="`, `"!="`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in query operators output, got %q", expected, stdout)
+		}
+	}
+
+	_, stderr, err = runCLI(t, "--output", "json", "query", "lint", "--signal", "traces", "--expr", "status = 'error'")
+	if err == nil {
+		t.Fatalf("expected query lint to fail for invalid trace expression")
+	}
+	if !strings.Contains(stderr, "unknown field 'status'") {
+		t.Fatalf("expected unknown field message, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "hasError = true") {
+		t.Fatalf("expected fix hint for hasError, got %q", stderr)
+	}
+}
+
+func TestAlertsValidateWrongResourceGivesResourceHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "channel.json")
+	if err := os.WriteFile(filePath, []byte(`{"name":"email-channel","email_configs":[{"to":"alerts@example.com"}]}`), 0o644); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	_, stderr, err := runCLI(t, "--output", "json", "alerts", "validate", "--file", filePath)
+	if err == nil {
+		t.Fatalf("expected alerts validate to fail when resource is wrong")
+	}
+	if !strings.Contains(stderr, "did you mean --resource channel") {
+		t.Fatalf("expected resource hint in stderr, got %q", stderr)
+	}
+}
+
+func TestAlertsValidateRuleSuggestsPreferredChannelsField(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "rule.json")
+	payload := `{"alert":"high-error-rate","alertType":"TRACES_BASED_ALERT","notificationChannels":["email-channel"]}`
+	if err := os.WriteFile(filePath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	_, stderr, err := runCLI(t, "--output", "json", "alerts", "validate", "--resource", "rule", "--file", filePath)
+	if err == nil {
+		t.Fatalf("expected alerts validate to fail for wrong field")
+	}
+	if !strings.Contains(stderr, "preferredChannels") {
+		t.Fatalf("expected preferredChannels hint in stderr, got %q", stderr)
+	}
+}
+
+func TestDashboardAndViewListSummaryModes(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":[{"id":"d-1","createdAt":"2026-02-21T00:00:00Z","updatedAt":"2026-02-21T01:00:00Z","data":{"title":"Dash One","description":"desc","widgets":[{"id":"w1"}]}}]}`)
+	})
+	mux.HandleFunc("/api/v1/explorer/views", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":[{"id":"v-1","name":"View One","sourcePage":"traces","updatedAt":"2026-02-21T02:00:00Z","compositeQuery":{"builderQueries":{"A":{}}}}]}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "dashboard", "list", "--profile", "local")
+	if err != nil {
+		t.Fatalf("dashboard list failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"summary":true`) || !strings.Contains(stdout, `"title":"Dash One"`) {
+		t.Fatalf("expected dashboard summary mode output, got %q", stdout)
+	}
+	if strings.Contains(stdout, `"widgets"`) {
+		t.Fatalf("expected summary output without full widgets payload, got %q", stdout)
+	}
+
+	stdout, stderr, err = runCLI(t, "--config", cfgPath, "--output", "json", "dashboard", "list", "--profile", "local", "--full")
+	if err != nil {
+		t.Fatalf("dashboard list --full failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"widgets"`) {
+		t.Fatalf("expected full output with widgets, got %q", stdout)
+	}
+
+	stdout, stderr, err = runCLI(t, "--config", cfgPath, "--output", "json", "view", "list", "--profile", "local", "--summary")
+	if err != nil {
+		t.Fatalf("view list --summary failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"summary":true`) || !strings.Contains(stdout, `"name":"View One"`) {
+		t.Fatalf("expected view summary output, got %q", stdout)
+	}
+	if strings.Contains(stdout, `"builderQueries"`) {
+		t.Fatalf("expected view summary to omit heavy query payload, got %q", stdout)
+	}
+}
+
+func TestAlertsRulesListSummaryMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/rules", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"rules":[{"id":"r-1","alert":"high-error-rate","alertType":"TRACES_BASED_ALERT","state":"inactive","preferredChannels":["email-channel"],"condition":{"compositeQuery":{"builderQueries":{"A":{}}}}}]}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(t, "--config", cfgPath, "--output", "json", "alerts", "rules", "list", "--profile", "local", "--summary")
+	if err != nil {
+		t.Fatalf("alerts rules list --summary failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"summary":true`) || !strings.Contains(stdout, `"alert":"high-error-rate"`) {
+		t.Fatalf("expected alerts summary output, got %q", stdout)
+	}
+	if strings.Contains(stdout, `"builderQueries"`) {
+		t.Fatalf("expected alerts summary to omit heavy condition payload, got %q", stdout)
 	}
 }

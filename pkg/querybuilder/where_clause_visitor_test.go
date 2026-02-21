@@ -170,6 +170,25 @@ func TestVisitKey(t *testing.T) {
 			expectedMainWrnURL: "",
 		},
 		{
+			name:    "Key typo returns suggestion",
+			keyText: "servcie.name",
+			fieldKeys: map[string][]*telemetrytypes.TelemetryFieldKey{
+				"service.name": []*telemetrytypes.TelemetryFieldKey{
+					{
+						Name:          "service.name",
+						Signal:        telemetrytypes.SignalTraces,
+						FieldContext:  telemetrytypes.FieldContextResource,
+						FieldDataType: telemetrytypes.FieldDataTypeString,
+					},
+				},
+			},
+			expectedKeys:       []telemetrytypes.TelemetryFieldKey{},
+			expectedErrors:     []string{"key `servcie.name` not found", "did you mean: 'service.name'?"},
+			expectedMainErrURL: "https://signoz.io/docs/userguide/search-troubleshooting/#key-fieldname-not-found",
+			expectedWarnings:   nil,
+			expectedMainWrnURL: "",
+		},
+		{
 			name:    "Multiple keys with same name different contexts",
 			keyText: "service.name",
 			fieldKeys: map[string][]*telemetrytypes.TelemetryFieldKey{
@@ -467,7 +486,7 @@ func TestVisitKey(t *testing.T) {
 			expectedWarnings:   nil,
 			expectedMainWrnURL: "",
 		},
-				{
+		{
 			name:    "only attribute.custom_field is selected",
 			keyText: "attribute.attribute.custom_field",
 			fieldKeys: map[string][]*telemetrytypes.TelemetryFieldKey{

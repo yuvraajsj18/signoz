@@ -68,6 +68,8 @@ Live tail logs via polling:
 
 ```bash
 ./signozctl query logs-tail --file examples/query-logs-v5.json --profile local --interval 2s --last 5m --output json
+# file is optional; falls back to built-in logs template:
+./signozctl query logs-tail --profile local --interval 2s --last 5m --iterations 3 --output json
 ```
 
 Saved views (traces/logs/metrics explorer):
@@ -79,8 +81,11 @@ Saved views (traces/logs/metrics explorer):
 ./signozctl view create --profile local --file examples/view-traces-catalog-node.json --output json
 ./signozctl view create --profile local --name "Catalog Node Saved View" --source-page traces --service-name catalog-node --output json
 ./signozctl view list --profile local --source-page traces --output json
+./signozctl view list --profile local --source-page traces --summary --output json
 ./signozctl view get <view-id> --profile local --output json
 ./signozctl view update <view-id> --profile local --file examples/view-traces-catalog-node.json --output json
+./signozctl view update <view-id> --profile local --file examples/view-traces-catalog-node.json --show-normalized-diff --output json
+./signozctl view apply --profile local --file examples/view-traces-catalog-node.json --output json
 ./signozctl view delete <view-id> --profile local --output json
 ```
 
@@ -96,7 +101,11 @@ Generate payload templates and schema ideas:
 ```bash
 ./signozctl query template --signal traces --output json
 ./signozctl query schema --signal metrics --output json
+./signozctl query schema --signal traces --format json-schema --output json
 ./signozctl query validate --file examples/query-traces-v5.json --output json
+./signozctl query fields --signal traces --output json
+./signozctl query operators --signal traces --field hasError --output json
+./signozctl query lint --signal traces --expr "status = 'error'" --output json
 ```
 
 Span-level trace operations:
@@ -119,6 +128,10 @@ Span-level trace operations:
 
 ```bash
 ./signozctl dashboard create --file examples/dashboard-minimal.json --profile local --output json
+./signozctl dashboard list --profile local --output json
+./signozctl dashboard list --profile local --full --output json
+./signozctl dashboard apply --file examples/dashboard-minimal.json --profile local --output json
+./signozctl dashboard update <dashboard-id> --file examples/dashboard-minimal.json --show-normalized-diff --profile local --output json
 ```
 
 Create an empty view quickly:
@@ -134,6 +147,8 @@ Browse and apply templates:
 ./signozctl dashboard templates search host --output json
 ./signozctl dashboard templates show hostmetrics --output json
 ./signozctl dashboard templates apply hostmetrics --profile local --output json
+# interactive picker (TTY required):
+./signozctl dashboard templates apply --interactive --profile local --output json
 ```
 
 Dashboard public sharing:
@@ -171,6 +186,8 @@ Templates, schemas, and local validation for other domains:
 ./signozctl alerts template --resource rule --output json
 ./signozctl alerts schema --resource channel --output json
 ./signozctl alerts validate --resource rule --file examples/alerts-rule.json --output json
+./signozctl alerts rules list --profile local --summary --output json
+./signozctl alerts rules apply --profile local --file examples/alerts-rule.json --output json
 
 ./signozctl iam template --resource invite --output json
 ./signozctl iam schema --resource api-key --output json

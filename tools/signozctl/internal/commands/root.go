@@ -280,6 +280,9 @@ func newQueryCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(newQueryTemplateCommand(flags))
 	cmd.AddCommand(newQuerySchemaCommand(flags))
 	cmd.AddCommand(newQueryValidateCommand(flags))
+	cmd.AddCommand(newQueryFieldsCommand(flags))
+	cmd.AddCommand(newQueryOperatorsCommand(flags))
+	cmd.AddCommand(newQueryLintCommand(flags))
 
 	cmd.AddCommand(newQueryFileCommand(flags, "traces", "/api/v5/query_range", "Run a traces query payload against /api/v5/query_range"))
 	cmd.AddCommand(newQueryFileCommand(flags, "logs", "/api/v5/query_range", "Run a logs query payload against /api/v5/query_range"))
@@ -445,6 +448,8 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(viewCreateCmd)
 
 	var listProfile string
+	var listSummary bool
+	var listFull bool
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List dashboards",
@@ -457,10 +462,15 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 			if err := c.GetJSON(cmd.Context(), "/api/v1/dashboards", &resp); err != nil {
 				return err
 			}
+			if !listFull {
+				return output.Render(cmd.OutOrStdout(), flags.Output, summarizeListResponse(resp))
+			}
 			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
 		},
 	}
 	listCmd.Flags().StringVar(&listProfile, "profile", "", "profile name override")
+	listCmd.Flags().BoolVar(&listSummary, "summary", true, "return concise summary fields")
+	listCmd.Flags().BoolVar(&listFull, "full", false, "return full raw payload")
 	cmd.AddCommand(listCmd)
 
 	var getProfile string
@@ -485,6 +495,7 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 
 	var updateFile string
 	var updateProfile string
+	var updateShowNormalizedDiff bool
 	updateCmd := &cobra.Command{
 		Use:   "update <dashboard-id>",
 		Short: "Update dashboard with JSON payload",
@@ -505,12 +516,87 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 			if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], raw, &resp); err != nil {
 				return err
 			}
+			if updateShowNormalizedDiff {
+				var sent map[string]any
+				_ = json.Unmarshal(raw, &sent)
+				if normalized, ok := extractMapAtPath(resp, "data", "data"); ok {
+					resp["normalizedDiff"] = normalizedTopLevelDiff(sent, normalized)
+				}
+			}
 			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
 		},
 	}
 	updateCmd.Flags().StringVar(&updateFile, "file", "", "dashboard JSON file")
 	updateCmd.Flags().StringVar(&updateProfile, "profile", "", "profile name override")
+	updateCmd.Flags().BoolVar(&updateShowNormalizedDiff, "show-normalized-diff", false, "show top-level diff between sent payload and server-normalized payload")
 	cmd.AddCommand(updateCmd)
+
+	var applyProfile string
+	var applyFile string
+	var applyBy string
+	applyCmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Create-or-update dashboard from JSON payload",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if applyFile == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			payload, raw, err := parsePayloadFile(applyFile)
+			if err != nil {
+				return err
+			}
+			matchBy := strings.ToLower(strings.TrimSpace(applyBy))
+			if matchBy == "" {
+				matchBy = "title"
+			}
+			if matchBy != "title" {
+				return errInvalidOption("by", matchBy, "title")
+			}
+			targetTitle, _ := payload["title"].(string)
+			if strings.TrimSpace(targetTitle) == "" {
+				return signozerrors.NewInputValidationError("invalid_payload", "title is required for dashboard apply --by title")
+			}
+
+			c, err := profileClient(flags, applyProfile)
+			if err != nil {
+				return err
+			}
+			var listResp map[string]any
+			if err := c.GetJSON(cmd.Context(), "/api/v1/dashboards", &listResp); err != nil {
+				return err
+			}
+			items, _ := listResp["data"].([]any)
+			for _, item := range items {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				id, _ := m["id"].(string)
+				data, _ := m["data"].(map[string]any)
+				title, _ := data["title"].(string)
+				if id != "" && title == targetTitle {
+					var updateResp map[string]any
+					if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+id, raw, &updateResp); err != nil {
+						return err
+					}
+					return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+						"mode": "updated", "id": id, "response": updateResp,
+					})
+				}
+			}
+			var createResp map[string]any
+			if err := c.PostRawJSON(cmd.Context(), "/api/v1/dashboards", raw, &createResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"mode": "created", "response": createResp,
+			})
+		},
+	}
+	applyCmd.Flags().StringVar(&applyProfile, "profile", "", "profile name override")
+	applyCmd.Flags().StringVar(&applyFile, "file", "", "dashboard JSON file")
+	applyCmd.Flags().StringVar(&applyBy, "by", "title", "idempotency key: title")
+	cmd.AddCommand(applyCmd)
 
 	var deleteProfile string
 	deleteCmd := &cobra.Command{

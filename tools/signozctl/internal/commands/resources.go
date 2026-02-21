@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/SigNoz/signoz/tools/signozctl/internal/client"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/config"
@@ -88,11 +89,75 @@ func buildCRUDGroup(flags *globalFlags, name, basePath string) *cobra.Command {
 	cmd.AddCommand(newProfilePostFromFileCommand(flags, "create", fmt.Sprintf("Create %s from JSON", name), basePath))
 	cmd.AddCommand(newProfilePutByIDFromFileCommand(flags, "update <id>", fmt.Sprintf("Update %s by ID", name), basePath+"/%s"))
 	cmd.AddCommand(newProfileDeleteByIDCommand(flags, "delete <id>", fmt.Sprintf("Delete %s by ID", name), basePath+"/%s"))
+	if name == "rules" {
+		cmd.AddCommand(newRulesApplyCommand(flags, basePath))
+	}
+	return cmd
+}
+
+func newRulesApplyCommand(flags *globalFlags, basePath string) *cobra.Command {
+	var profile string
+	var filePath string
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Create-or-update rule by alert name",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(filePath) == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			payload, raw, err := parsePayloadFile(filePath)
+			if err != nil {
+				return err
+			}
+			alertName, _ := payload["alert"].(string)
+			if strings.TrimSpace(alertName) == "" {
+				return signozerrors.NewInputValidationError("invalid_payload", "alert is required for rules apply")
+			}
+			c, err := profileClient(flags, profile)
+			if err != nil {
+				return err
+			}
+			var listResp map[string]any
+			if err := c.GetJSON(cmd.Context(), basePath, &listResp); err != nil {
+				return err
+			}
+			data, _ := listResp["data"].(map[string]any)
+			rules, _ := data["rules"].([]any)
+			for _, item := range rules {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				id, _ := m["id"].(string)
+				alert, _ := m["alert"].(string)
+				if id != "" && alert == alertName {
+					var updateResp map[string]any
+					if err := c.PutRawJSON(cmd.Context(), basePath+"/"+id, raw, &updateResp); err != nil {
+						return err
+					}
+					return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+						"mode": "updated", "id": id, "response": updateResp,
+					})
+				}
+			}
+			var createResp map[string]any
+			if err := c.PostRawJSON(cmd.Context(), basePath, raw, &createResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"mode": "created", "response": createResp,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&profile, "profile", "", "profile name override")
+	cmd.Flags().StringVar(&filePath, "file", "", "JSON payload file")
 	return cmd
 }
 
 func newProfileGetCommand(flags *globalFlags, use, short, path string) *cobra.Command {
 	var localProfile string
+	var summary bool
+	var full bool
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -105,10 +170,15 @@ func newProfileGetCommand(flags *globalFlags, use, short, path string) *cobra.Co
 			if err := c.GetJSON(cmd.Context(), path, &resp); err != nil {
 				return err
 			}
+			if summary && !full {
+				return output.Render(cmd.OutOrStdout(), flags.Output, summarizeListResponse(resp))
+			}
 			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
 		},
 	}
 	cmd.Flags().StringVar(&localProfile, "profile", "", "profile name override")
+	cmd.Flags().BoolVar(&summary, "summary", false, "return concise summary fields")
+	cmd.Flags().BoolVar(&full, "full", false, "return full raw payload")
 	return cmd
 }
 

@@ -172,8 +172,8 @@ func selectTemplateInteractive(templates []dashboardTemplateMeta) (string, error
 
 	selected := []string{}
 	prompt := &survey.MultiSelect{
-		Message: "Select template (arrow keys, space to select, enter to apply):",
-		Options: options,
+		Message:  "Select template (arrow keys, space to select, enter to apply):",
+		Options:  options,
 		PageSize: 12,
 	}
 	if err := survey.AskOne(prompt, &selected); err != nil {

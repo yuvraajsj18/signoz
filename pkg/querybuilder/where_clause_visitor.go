@@ -855,7 +855,7 @@ func (v *filterExpressionVisitor) VisitKey(ctx *grammar.KeyContext) any {
 	// 1. either user meant key ( this is already handled above in fieldKeysForName )
 	// 2. or user meant `attribute.key` we look up in the map for all possible field keys with name 'attribute.key'
 
-	// Note: 
+	// Note:
 	// If user only wants to search `attribute.key`, then they have to use `attribute.attribute.key`
 	// If user only wants to search `key`, then they have to use `key`
 	// If user wants to search both, they can use `attribute.key` and we will resolve the ambiguity
@@ -887,6 +887,13 @@ func (v *filterExpressionVisitor) VisitKey(ctx *grammar.KeyContext) any {
 			// TODO(srikanthccv): do we want to return an error here?
 			// should we infer the type and auto-magically build a key for expression?
 			v.errors = append(v.errors, fmt.Sprintf("key `%s` not found", fieldKey.Name))
+			knownFieldKeys := make([]string, 0, len(v.fieldKeys))
+			for name := range v.fieldKeys {
+				knownFieldKeys = append(knownFieldKeys, name)
+			}
+			if suggestion, found := telemetrytypes.SuggestCorrection(fieldKey.Name, knownFieldKeys); found {
+				v.errors = append(v.errors, suggestion)
+			}
 			v.mainErrorURL = "https://signoz.io/docs/userguide/search-troubleshooting/#key-fieldname-not-found"
 		}
 	}

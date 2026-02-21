@@ -401,7 +401,18 @@ func alertsSchema(resource string) (map[string]any, error) {
 func validateAlertsPayload(resource string, payload map[string]any) error {
 	switch resource {
 	case "rule":
+		if _, hasWrong := payload["notificationChannels"]; hasWrong {
+			return signozerrors.NewLocalError(signozerrors.ClassInputValidation, 400, "invalid_payload", "unsupported field `notificationChannels` in alert rule payload", "use `preferredChannels` (array of channel names) for alert rules")
+		}
 		if _, ok := payload["alert"].(string); !ok {
+			if _, hasEmailConfigs := payload["email_configs"]; hasEmailConfigs {
+				return signozerrors.NewLocalError(signozerrors.ClassInputValidation, 400, "invalid_payload", "alert is required and must be a string", "did you mean --resource channel ? payload looks like a channel")
+			}
+			if _, hasName := payload["name"].(string); hasName {
+				if _, hasChannels := payload["channels"]; hasChannels {
+					return signozerrors.NewLocalError(signozerrors.ClassInputValidation, 400, "invalid_payload", "alert is required and must be a string", "did you mean --resource route-policy ? payload looks like a route policy")
+				}
+			}
 			return signozerrors.NewInputValidationError("invalid_payload", "alert is required and must be a string")
 		}
 		if _, ok := payload["alertType"].(string); !ok {

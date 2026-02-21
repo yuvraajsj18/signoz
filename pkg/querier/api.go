@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -42,7 +43,7 @@ func (a *API) QueryRange(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	var queryRangeRequest qbtypes.QueryRangeRequest
-	if err := json.NewDecoder(req.Body).Decode(&queryRangeRequest); err != nil {
+	if err := decodeQueryRangeRequestBody(req, &queryRangeRequest); err != nil {
 		render.Error(rw, err)
 		return
 	}
@@ -223,7 +224,7 @@ func (a *API) QueryRawStream(rw http.ResponseWriter, req *http.Request) {
 func (a *API) ReplaceVariables(rw http.ResponseWriter, req *http.Request) {
 
 	var queryRangeRequest qbtypes.QueryRangeRequest
-	if err := json.NewDecoder(req.Body).Decode(&queryRangeRequest); err != nil {
+	if err := decodeQueryRangeRequestBody(req, &queryRangeRequest); err != nil {
 		render.Error(rw, err)
 		return
 	}
@@ -270,6 +271,27 @@ func (a *API) ReplaceVariables(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	render.Success(rw, http.StatusOK, queryRangeRequest)
+}
+
+func decodeQueryRangeRequestBody(req *http.Request, out *qbtypes.QueryRangeRequest) error {
+	dec := json.NewDecoder(req.Body)
+	if err := dec.Decode(out); err != nil {
+		return errors.NewInvalidInputf(errors.CodeInvalidInput, "invalid JSON request body").
+			WithAdditional(err.Error()).
+			WithAdditional("ensure request body is a valid query_range JSON payload")
+	}
+
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return errors.NewInvalidInputf(errors.CodeInvalidInput, "invalid JSON request body").
+				WithAdditional(err.Error()).
+				WithAdditional("ensure request body is a valid query_range JSON payload")
+		}
+		return errors.NewInvalidInputf(errors.CodeInvalidInput, "request body must contain a single JSON object").
+			WithAdditional("remove trailing tokens after the payload")
+	}
+	return nil
 }
 
 func (a *API) logEvent(ctx context.Context, referrer string, event *qbtypes.QBEvent) {

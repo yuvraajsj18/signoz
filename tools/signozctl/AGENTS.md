@@ -76,11 +76,20 @@ Implemented:
 - `dashboard templates list/search/show/apply` (with env-overridable index/base URLs and GitHub tree fallback)
 - `dashboard view-create` convenience command
 - `query logs-tail` polling live-tail workflow with dedupe and relative window flags
+17. Discoverability + idempotent workflows + concise scripting outputs:
+- `query fields`, `query operators`, `query lint`, `query schema --format json-schema`
+- idempotent apply commands: `dashboard apply`, `view apply`, `alerts rules apply`
+- normalized server-echo diff on update paths: `dashboard update --show-normalized-diff`, `view update --show-normalized-diff`
+- summary/full list modes for dashboards/views and generic list endpoints (`--summary`, `--full`)
+- `logs-tail` now supports no-`--file` mode (uses built-in logs template)
+18. Local live integration suite executed successfully in Docker SigNoz (`SIGNOZCTL_E2E=1`):
+- passed: auth/query/dashboard/trace/system apdex/iam api-keys/alerts coverage
+- expected skip: public dashboard test in unlicensed local environment
 
 Not yet complete:
-1. Execute new live integration suite in your local Docker SigNoz env (`SIGNOZCTL_E2E=1`) for alerts/iam/system tests added in code
-2. Continue tightening template/schema contracts for edge payload variants and endpoint-version drift
-3. Add additional secret-storage backends (OS keychain/vault) beyond env-passphrase encrypted file mode
+1. Continue tightening template/schema contracts for edge payload variants and endpoint-version drift
+2. Add additional secret-storage backends (OS keychain/vault) beyond env-passphrase encrypted file mode
+3. Extend API-side parser error ergonomics across more endpoints (current hardening started with query decode + filter key typo suggestions)
 
 ---
 

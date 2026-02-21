@@ -118,9 +118,9 @@ func dashboardWidgetTemplate(panel, signal string) (map[string]any, error) {
 				"builder": map[string]any{
 					"queryData": []any{
 						map[string]any{
-							"queryName":   "A",
-							"dataSource":  "traces",
-							"expression":  "A",
+							"queryName":    "A",
+							"dataSource":   "traces",
+							"expression":   "A",
 							"stepInterval": 60,
 							"aggregations": []any{
 								map[string]any{"expression": "count()"},
@@ -144,9 +144,9 @@ func dashboardWidgetTemplate(panel, signal string) (map[string]any, error) {
 				"builder": map[string]any{
 					"queryData": []any{
 						map[string]any{
-							"queryName":   "A",
-							"dataSource":  "logs",
-							"expression":  "A",
+							"queryName":    "A",
+							"dataSource":   "logs",
+							"expression":   "A",
 							"stepInterval": 60,
 							"aggregations": []any{
 								map[string]any{"expression": "count()"},
@@ -170,9 +170,9 @@ func dashboardWidgetTemplate(panel, signal string) (map[string]any, error) {
 				"builder": map[string]any{
 					"queryData": []any{
 						map[string]any{
-							"queryName":   "A",
-							"dataSource":  "metrics",
-							"expression":  "A",
+							"queryName":    "A",
+							"dataSource":   "metrics",
+							"expression":   "A",
 							"stepInterval": 60,
 							"aggregations": []any{
 								map[string]any{

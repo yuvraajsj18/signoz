@@ -81,6 +81,8 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 	var sourcePage string
 	var category string
 	var name string
+	var summary bool
+	var full bool
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved views",
@@ -107,6 +109,9 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 			if err := c.GetJSON(cmd.Context(), path, &resp); err != nil {
 				return err
 			}
+			if summary && !full {
+				return output.Render(cmd.OutOrStdout(), flags.Output, summarizeListResponse(resp))
+			}
 			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
 		},
 	}
@@ -114,6 +119,8 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 	listCmd.Flags().StringVar(&sourcePage, "source-page", "", "filter by source page: traces|logs|metrics")
 	listCmd.Flags().StringVar(&category, "category", "", "filter by category")
 	listCmd.Flags().StringVar(&name, "name", "", "filter by view name")
+	listCmd.Flags().BoolVar(&summary, "summary", false, "return concise summary fields")
+	listCmd.Flags().BoolVar(&full, "full", false, "return full raw payload")
 	cmd.AddCommand(listCmd)
 
 	var createProfile string
@@ -166,7 +173,101 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(createCmd)
 
 	cmd.AddCommand(newProfileGetByIDCommand(flags, "get <view-id>", "Get saved view by ID", "/api/v1/explorer/views/%s"))
-	cmd.AddCommand(newProfilePutByIDFromFileCommand(flags, "update <view-id>", "Update saved view by ID", "/api/v1/explorer/views/%s"))
+	var updateProfile string
+	var updateFile string
+	var showNormalizedDiff bool
+	updateCmd := &cobra.Command{
+		Use:   "update <view-id>",
+		Short: "Update saved view by ID",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(updateFile) == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			payload, raw, err := parsePayloadFile(updateFile)
+			if err != nil {
+				return err
+			}
+			c, err := profileClient(flags, updateProfile)
+			if err != nil {
+				return err
+			}
+			var resp map[string]any
+			if err := c.PutRawJSON(cmd.Context(), "/api/v1/explorer/views/"+args[0], raw, &resp); err != nil {
+				return err
+			}
+			if showNormalizedDiff {
+				if normalized, ok := resp["data"].(map[string]any); ok {
+					resp["normalizedDiff"] = normalizedTopLevelDiff(payload, normalized)
+				}
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
+		},
+	}
+	updateCmd.Flags().StringVar(&updateProfile, "profile", "", "profile name override")
+	updateCmd.Flags().StringVar(&updateFile, "file", "", "saved-view JSON payload file")
+	updateCmd.Flags().BoolVar(&showNormalizedDiff, "show-normalized-diff", false, "show top-level diff between sent payload and server-normalized payload")
+	cmd.AddCommand(updateCmd)
+
+	var applyProfile string
+	var applyFile string
+	applyCmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Create-or-update saved view by name+sourcePage",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if strings.TrimSpace(applyFile) == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			payload, raw, err := parsePayloadFile(applyFile)
+			if err != nil {
+				return err
+			}
+			targetName, _ := payload["name"].(string)
+			targetSource, _ := payload["sourcePage"].(string)
+			if strings.TrimSpace(targetName) == "" || strings.TrimSpace(targetSource) == "" {
+				return signozerrors.NewInputValidationError("invalid_payload", "name and sourcePage are required for view apply")
+			}
+
+			c, err := profileClient(flags, applyProfile)
+			if err != nil {
+				return err
+			}
+			var listResp map[string]any
+			if err := c.GetJSON(cmd.Context(), "/api/v1/explorer/views", &listResp); err != nil {
+				return err
+			}
+			items, _ := listResp["data"].([]any)
+			for _, item := range items {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				id, _ := m["id"].(string)
+				name, _ := m["name"].(string)
+				source, _ := m["sourcePage"].(string)
+				if id != "" && name == targetName && source == targetSource {
+					var updateResp map[string]any
+					if err := c.PutRawJSON(cmd.Context(), "/api/v1/explorer/views/"+id, raw, &updateResp); err != nil {
+						return err
+					}
+					return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+						"mode": "updated", "id": id, "response": updateResp,
+					})
+				}
+			}
+			var createResp map[string]any
+			if err := c.PostRawJSON(cmd.Context(), "/api/v1/explorer/views", raw, &createResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"mode": "created", "response": createResp,
+			})
+		},
+	}
+	applyCmd.Flags().StringVar(&applyProfile, "profile", "", "profile name override")
+	applyCmd.Flags().StringVar(&applyFile, "file", "", "saved-view JSON payload file")
+	cmd.AddCommand(applyCmd)
+
 	cmd.AddCommand(newProfileDeleteByIDCommand(flags, "delete <view-id>", "Delete saved view by ID", "/api/v1/explorer/views/%s"))
 
 	return cmd

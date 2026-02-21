@@ -23,12 +23,24 @@ func newLogsTailCommand(flags *globalFlags) *cobra.Command {
 		Use:   "logs-tail",
 		Short: "Live tail logs by polling query API",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if filePath == "" {
-				return signozerrors.NewMissingRequiredFlagError("--file")
-			}
-			raw, err := os.ReadFile(filePath)
-			if err != nil {
-				return err
+			var (
+				raw []byte
+				err error
+			)
+			if strings.TrimSpace(filePath) == "" {
+				template, terr := buildQueryTemplate("logs")
+				if terr != nil {
+					return terr
+				}
+				raw, err = json.Marshal(template)
+				if err != nil {
+					return err
+				}
+			} else {
+				raw, err = os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
 			}
 			interval, err := time.ParseDuration(intervalRaw)
 			if err != nil || interval <= 0 {
@@ -92,7 +104,7 @@ func newLogsTailCommand(flags *globalFlags) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&filePath, "file", "", "JSON payload file (logs query request)")
+	cmd.Flags().StringVar(&filePath, "file", "", "JSON payload file (logs query request). If omitted, uses built-in logs template.")
 	cmd.Flags().StringVar(&profile, "profile", "", "profile name override")
 	cmd.Flags().StringVar(&intervalRaw, "interval", "2s", "poll interval (e.g. 2s)")
 	cmd.Flags().IntVar(&iterations, "iterations", 0, "number of poll iterations (0 = run until interrupted)")
