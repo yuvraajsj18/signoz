@@ -531,6 +531,72 @@ func TestQueryTraceFlamegraphSelectedSpanFlagBuildsBodyWithoutFile(t *testing.T)
 	}
 }
 
+func TestQueryErrorsListAcceptsArrayResponse(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	payloadPath := filepath.Join(tmpDir, "errors-list.json")
+	if err := os.WriteFile(payloadPath, []byte(`{"start":"1","end":"2","limit":10,"offset":0}`), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/listErrors", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"exceptionType":"ValueError","count":3}]`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"query", "errors-list", "--profile", "local", "--file", payloadPath,
+	)
+	if err != nil {
+		t.Fatalf("expected errors-list to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"exceptionType":"ValueError"`) {
+		t.Fatalf("expected array response in output, got %q", stdout)
+	}
+}
+
+func TestQueryErrorsCountAcceptsNumericResponse(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	payloadPath := filepath.Join(tmpDir, "errors-count.json")
+	if err := os.WriteFile(payloadPath, []byte(`{"start":"1","end":"2"}`), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/countErrors", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `7`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"query", "errors-count", "--profile", "local", "--file", payloadPath,
+	)
+	if err != nil {
+		t.Fatalf("expected errors-count to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if strings.TrimSpace(stdout) != "7" {
+		t.Fatalf("expected numeric response 7, got %q", stdout)
+	}
+}
+
 func TestDashboardPublicCreateEnabledFlagWithoutFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")

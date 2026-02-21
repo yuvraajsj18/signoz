@@ -222,7 +222,7 @@ func newProfilePostFromFileCommand(flags *globalFlags, use, short, path string) 
 			if err != nil {
 				return err
 			}
-			var resp map[string]any
+			var resp any
 			if err := c.PostRawJSON(cmd.Context(), path, raw, &resp); err != nil {
 				return err
 			}
