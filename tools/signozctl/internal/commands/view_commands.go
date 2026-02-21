@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -287,9 +286,11 @@ func buildSavedViewSchema(sourcePage string) (map[string]any, error) {
 			"compositeQuery.queryType",
 			"compositeQuery.panelType",
 			"compositeQuery.unit",
-			"compositeQuery.builderQueries.<name>.dataSource",
-			"compositeQuery.builderQueries.<name>.aggregateOperator",
-			"compositeQuery.builderQueries.<name>.filters.items[]",
+			"compositeQuery.queries[]",
+			"compositeQuery.queries[].type",
+			"compositeQuery.queries[].spec.signal",
+			"compositeQuery.queries[].spec.filter.expression",
+			"compositeQuery.builderQueries.<name>.filters.items[] (legacy)",
 		},
 	}, nil
 }
@@ -312,10 +313,13 @@ func validateSavedViewPayload(payload map[string]any) error {
 	if _, ok := composite["queryType"].(string); !ok {
 		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery.queryType is required and must be a string")
 	}
-	if _, ok := composite["builderQueries"].(map[string]any); !ok {
-		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery.builderQueries is required and must be an object")
+	if _, ok := composite["builderQueries"].(map[string]any); ok {
+		return nil
 	}
-	return nil
+	if _, ok := composite["queries"].([]any); ok {
+		return nil
+	}
+	return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery must contain either builderQueries (legacy) or queries[]")
 }
 
 func buildSavedViewPayloadFromFlags(name, sourcePage, serviceName, extraData string) (map[string]any, error) {
@@ -326,53 +330,28 @@ func buildSavedViewPayloadFromFlags(name, sourcePage, serviceName, extraData str
 	if strings.TrimSpace(extraData) == "" {
 		extraData = "{}"
 	}
+	trimmedExtra := strings.TrimSpace(extraData)
+	if trimmedExtra == "{}" {
+		extraData = defaultExtraDataForSourcePage(sourcePage)
+	}
 	// Validate extraData is a JSON object/string payload.
 	if !jsonLike(extraData) {
 		return nil, signozerrors.NewInputValidationError("invalid_extra_data", "extra-data must be valid JSON text (for example: '{}')")
 	}
 
 	filterExpr := ""
-	var filters map[string]any
 	if strings.TrimSpace(serviceName) != "" {
-		filterExpr = fmt.Sprintf("service.name = '%s'", strings.TrimSpace(serviceName))
-		filters = map[string]any{
-			"op": "AND",
-			"items": []any{
-				map[string]any{
-					"key": map[string]any{
-						"key":      "service.name",
-						"dataType": "string",
-						"type":     "resource",
-						"isColumn": false,
-						"isJSON":   false,
-					},
-					"op":    "=",
-					"value": strings.TrimSpace(serviceName),
-				},
-			},
-		}
+		filterExpr = "service.name = '" + strings.TrimSpace(serviceName) + "'"
 	}
 
-	queryData := map[string]any{
-		"queryName":          "A",
-		"dataSource":         sourcePage,
-		"aggregateOperator":  "count",
-		"aggregateAttribute": map[string]any{"key": "", "type": "", "dataType": ""},
-		"timeAggregation":    "rate",
-		"spaceAggregation":   "sum",
-		"stepInterval":       60,
-		"filter":             map[string]any{"expression": filterExpr},
-		"filters":            filters,
-		"groupBy":            []any{},
-		"expression":         "A",
-		"disabled":           false,
-		"having":             []any{},
-		"limit":              20,
-		"orderBy":            []any{},
-		"legend":             "",
-		"functions":          []any{},
+	spec := map[string]any{
+		"name":         "A",
+		"signal":       sourcePage,
+		"source":       "",
+		"stepInterval": 0,
+		"filter":       map[string]any{"expression": filterExpr},
+		"having":       map[string]any{"expression": ""},
 	}
-
 	return map[string]any{
 		"name":       strings.TrimSpace(name),
 		"sourcePage": sourcePage,
@@ -382,9 +361,11 @@ func buildSavedViewPayloadFromFlags(name, sourcePage, serviceName, extraData str
 		"compositeQuery": map[string]any{
 			"queryType": "builder",
 			"panelType": "list",
-			"unit":      "none",
-			"builderQueries": map[string]any{
-				"A": queryData,
+			"queries": []any{
+				map[string]any{
+					"type": "builder_query",
+					"spec": spec,
+				},
 			},
 		},
 	}, nil
@@ -393,4 +374,15 @@ func buildSavedViewPayloadFromFlags(name, sourcePage, serviceName, extraData str
 func jsonLike(raw string) bool {
 	trim := strings.TrimSpace(raw)
 	return strings.HasPrefix(trim, "{") && strings.HasSuffix(trim, "}")
+}
+
+func defaultExtraDataForSourcePage(sourcePage string) string {
+	switch sourcePage {
+	case "traces":
+		return `{"version":1,"selectColumns":[{"name":"service.name","signal":"traces","fieldContext":"resource","fieldDataType":"string"},{"name":"name","signal":"traces","fieldContext":"span","fieldDataType":"string"},{"name":"duration_nano","signal":"traces","fieldContext":"span","fieldDataType":""},{"name":"http_method","signal":"traces","fieldContext":"span","fieldDataType":""},{"name":"response_status_code","signal":"traces","fieldContext":"span","fieldDataType":""}]}`
+	case "logs":
+		return `{"version":1,"selectColumns":[{"name":"timestamp","signal":"logs","fieldContext":"span","fieldDataType":"timestamp"},{"name":"severity_text","signal":"logs","fieldContext":"span","fieldDataType":"string"},{"name":"body","signal":"logs","fieldContext":"span","fieldDataType":"string"},{"name":"service.name","signal":"logs","fieldContext":"resource","fieldDataType":"string"}]}`
+	default:
+		return "{}"
+	}
 }

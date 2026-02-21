@@ -1844,8 +1844,14 @@ func TestViewCreateWithServiceNameBuildsSavedViewPayload(t *testing.T) {
 	if !strings.Contains(body, `"name":"Catalog Node Saved View"`) {
 		t.Fatalf("expected name in request body, got %q", body)
 	}
+	if !strings.Contains(body, `"queries":[`) || !strings.Contains(body, `"type":"builder_query"`) {
+		t.Fatalf("expected v5 queries[] shape in request body, got %q", body)
+	}
 	if !strings.Contains(body, `service.name = 'catalog-node'`) {
 		t.Fatalf("expected service.name filter in request body, got %q", body)
+	}
+	if !strings.Contains(body, "selectColumns") || !strings.Contains(body, "duration_nano") {
+		t.Fatalf("expected default traces selectColumns in extraData, got %q", body)
 	}
 }
 

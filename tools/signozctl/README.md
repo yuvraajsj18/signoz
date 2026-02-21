@@ -89,6 +89,8 @@ Saved views (traces/logs/metrics explorer):
 ./signozctl view delete <view-id> --profile local --output json
 ```
 
+Note: `view template/create --source-page traces --service-name ...` now emits UI-compatible `queries[]` shape with default `extraData.selectColumns`, so selecting saved views in Explorer renders rows consistently.
+
 Relative time override without editing payload:
 
 ```bash
