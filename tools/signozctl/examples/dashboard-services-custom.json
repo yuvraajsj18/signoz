@@ -1,0 +1,282 @@
+{
+  "title": "Microservices Services Overview (custom)",
+  "description": "Custom dashboard for catalog-node and pricing-fastapi created via signozctl",
+  "variables": {},
+  "widgets": [
+    {
+      "id": "catalog-throughput",
+      "title": "Catalog Throughput (traces count)",
+      "description": "Trace volume for catalog-node",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "traces",
+              "aggregateOperator": "count",
+              "expression": "A",
+              "stepInterval": 60,
+              "timeAggregation": "rate",
+              "spaceAggregation": "sum",
+              "filters": {
+                "op": "AND",
+                "items": [
+                  {
+                    "key": {
+                      "key": "service.name",
+                      "type": "resource",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "catalog-node"
+                  }
+                ]
+              }
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    },
+    {
+      "id": "pricing-throughput",
+      "title": "Pricing Throughput (traces count)",
+      "description": "Trace volume for pricing-fastapi",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "traces",
+              "aggregateOperator": "count",
+              "expression": "A",
+              "stepInterval": 60,
+              "timeAggregation": "rate",
+              "spaceAggregation": "sum",
+              "filters": {
+                "op": "AND",
+                "items": [
+                  {
+                    "key": {
+                      "key": "service.name",
+                      "type": "resource",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "pricing-fastapi"
+                  }
+                ]
+              }
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    },
+    {
+      "id": "catalog-errors",
+      "title": "Catalog Errors (logs count)",
+      "description": "Error log count for catalog-node",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "logs",
+              "aggregateOperator": "count",
+              "expression": "A",
+              "stepInterval": 60,
+              "timeAggregation": "rate",
+              "spaceAggregation": "sum",
+              "filters": {
+                "op": "AND",
+                "items": [
+                  {
+                    "key": {
+                      "key": "service.name",
+                      "type": "resource",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "catalog-node"
+                  },
+                  {
+                    "key": {
+                      "key": "severity_text",
+                      "type": "attribute",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "error"
+                  }
+                ]
+              }
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    },
+    {
+      "id": "pricing-errors",
+      "title": "Pricing Errors (logs count)",
+      "description": "Error log count for pricing-fastapi",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "logs",
+              "aggregateOperator": "count",
+              "expression": "A",
+              "stepInterval": 60,
+              "timeAggregation": "rate",
+              "spaceAggregation": "sum",
+              "filters": {
+                "op": "AND",
+                "items": [
+                  {
+                    "key": {
+                      "key": "service.name",
+                      "type": "resource",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "pricing-fastapi"
+                  },
+                  {
+                    "key": {
+                      "key": "severity_text",
+                      "type": "attribute",
+                      "dataType": "string",
+                      "isColumn": false,
+                      "isJSON": false
+                    },
+                    "op": "=",
+                    "value": "error"
+                  }
+                ]
+              }
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    },
+    {
+      "id": "service-latency-p95",
+      "title": "p95 Latency by Service (ms)",
+      "description": "p95 trace latency for catalog and pricing services",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "traces",
+              "expression": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "expression": "p95(duration_nano)",
+                  "alias": "p95_duration_ns"
+                }
+              ],
+              "groupBy": [
+                {
+                  "key": "service.name",
+                  "type": "resource",
+                  "dataType": "string",
+                  "isColumn": false,
+                  "isJSON": false
+                }
+              ],
+              "filter": {
+                "expression": "(service.name = 'catalog-node' OR service.name = 'pricing-fastapi')"
+              }
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    },
+    {
+      "id": "top-failing-endpoints",
+      "title": "Top Failing Endpoints (trace count)",
+      "description": "Top span names with error status across both services",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "traces",
+              "expression": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "expression": "count()"
+                }
+              ],
+              "groupBy": [
+                {
+                  "key": "name",
+                  "type": "tag",
+                  "dataType": "string",
+                  "isColumn": true,
+                  "isJSON": false
+                },
+                {
+                  "key": "service.name",
+                  "type": "resource",
+                  "dataType": "string",
+                  "isColumn": false,
+                  "isJSON": false
+                }
+              ],
+              "filter": {
+                "expression": "(service.name IN ('catalog-node', 'pricing-fastapi')) AND (response_status_code != '200')"
+              },
+              "orderBy": [
+                {
+                  "columnName": "count()",
+                  "order": "desc"
+                }
+              ],
+              "limit": 10
+            }
+          ],
+          "queryFormulas": []
+        }
+      }
+    }
+  ],
+  "layout": [
+    { "i": "catalog-throughput", "x": 0, "y": 0, "w": 6, "h": 6 },
+    { "i": "pricing-throughput", "x": 6, "y": 0, "w": 6, "h": 6 },
+    { "i": "catalog-errors", "x": 0, "y": 6, "w": 6, "h": 4 },
+    { "i": "pricing-errors", "x": 6, "y": 6, "w": 6, "h": 4 },
+    { "i": "service-latency-p95", "x": 0, "y": 10, "w": 12, "h": 6 },
+    { "i": "top-failing-endpoints", "x": 0, "y": 16, "w": 12, "h": 6 }
+  ]
+}

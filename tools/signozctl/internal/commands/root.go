@@ -377,6 +377,10 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(newDashboardTemplateCommand(flags))
 	cmd.AddCommand(newDashboardSchemaCommand(flags))
 	cmd.AddCommand(newDashboardValidateCommand(flags))
+	cmd.AddCommand(newDashboardLintCommand(flags))
+	cmd.AddCommand(newDashboardCapabilitiesCommand(flags))
+	cmd.AddCommand(newDashboardWidgetTemplateCommand(flags))
+	cmd.AddCommand(newDashboardCookbookCommand(flags))
 	cmd.AddCommand(newDashboardTemplatesCommand(flags))
 
 	var filePath string

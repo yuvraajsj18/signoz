@@ -727,6 +727,115 @@ func TestDashboardTemplateSchemaValidate(t *testing.T) {
 	}
 }
 
+func TestDashboardCapabilitiesOutputsContracts(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--output", "json", "dashboard", "capabilities")
+	if err != nil {
+		t.Fatalf("dashboard capabilities failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"panelTypes"`, `"graph"`, `"widgetTemplateCommand"`, `"queryShapeRules"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in capabilities output, got %q", expected, stdout)
+		}
+	}
+}
+
+func TestDashboardWidgetTemplateForTraceGraph(t *testing.T) {
+	stdout, stderr, err := runCLI(
+		t,
+		"--output", "json",
+		"dashboard", "widget-template",
+		"--panel", "graph",
+		"--signal", "traces",
+	)
+	if err != nil {
+		t.Fatalf("dashboard widget-template failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"panelTypes":"graph"`, `"dataSource":"traces"`, `"aggregations"`, `"filter"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in widget template output, got %q", expected, stdout)
+		}
+	}
+}
+
+func TestDashboardLintExplainInvalidOrderByGivesHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	payloadPath := filepath.Join(tmpDir, "dash-invalid-orderby.json")
+	payload := `{
+  "title": "Invalid Dashboard",
+  "widgets": [
+    {
+      "id": "w1",
+      "panelTypes": "table",
+      "title": "Top failing endpoints",
+      "query": {
+        "queryType": "builder",
+        "builder": {
+          "queryData": [
+            {
+              "queryName": "A",
+              "dataSource": "traces",
+              "aggregations": [{"expression":"count()"}],
+              "groupBy": [{"key":"name","type":"tag","dataType":"string","isColumn":true,"isJSON":false}],
+              "orderBy": [{"columnName":"A","order":"desc"}]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "layout": [{"i":"w1","x":0,"y":0,"w":12,"h":6}],
+  "variables": {}
+}`
+	if err := os.WriteFile(payloadPath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	_, stderr, err := runCLI(
+		t,
+		"--output", "json",
+		"dashboard", "lint",
+		"--file", payloadPath,
+		"--explain",
+	)
+	if err == nil {
+		t.Fatalf("expected lint to fail for invalid orderBy")
+	}
+	if !strings.Contains(stderr, "invalid order by key 'A'") {
+		t.Fatalf("expected invalid orderBy message, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "count(), name, service.name") {
+		t.Fatalf("expected explain hint with valid keys, got %q", stderr)
+	}
+}
+
+func TestDashboardCookbookListAndShow(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--output", "json", "dashboard", "cookbook", "list")
+	if err != nil {
+		t.Fatalf("dashboard cookbook list failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"recipes"`, `"p95-latency-by-service"`, `"top-failing-endpoints"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in cookbook list output, got %q", expected, stdout)
+		}
+	}
+
+	stdout, stderr, err = runCLI(
+		t,
+		"--output", "json",
+		"dashboard", "cookbook", "show", "p95-latency-by-service",
+		"--service", "catalog-node",
+		"--service", "pricing-fastapi",
+	)
+	if err != nil {
+		t.Fatalf("dashboard cookbook show failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"widget"`, `"p95(duration_nano)"`, `"catalog-node"`, `"pricing-fastapi"`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in cookbook show output, got %q", expected, stdout)
+		}
+	}
+}
+
 func TestStructuredLocalValidationErrorForMissingFile(t *testing.T) {
 	_, stderr, err := runCLI(t, "--output", "json", "query", "traces")
 	if err == nil {
