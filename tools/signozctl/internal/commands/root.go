@@ -463,6 +463,26 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	listCmd.Flags().StringVar(&listProfile, "profile", "", "profile name override")
 	cmd.AddCommand(listCmd)
 
+	var getProfile string
+	getCmd := &cobra.Command{
+		Use:   "get <dashboard-id>",
+		Short: "Get dashboard by ID",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := profileClient(flags, getProfile)
+			if err != nil {
+				return err
+			}
+			var resp map[string]any
+			if err := c.GetJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], &resp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, resp)
+		},
+	}
+	getCmd.Flags().StringVar(&getProfile, "profile", "", "profile name override")
+	cmd.AddCommand(getCmd)
+
 	var updateFile string
 	var updateProfile string
 	updateCmd := &cobra.Command{
@@ -512,12 +532,129 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	deleteCmd.Flags().StringVar(&deleteProfile, "profile", "", "profile name override")
 	cmd.AddCommand(deleteCmd)
 
+	var panelGetProfile string
+	panelGetCmd := &cobra.Command{
+		Use:   "panel-get <dashboard-id> <panel-id>",
+		Short: "Get single panel/widget JSON from a dashboard",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := profileClient(flags, panelGetProfile)
+			if err != nil {
+				return err
+			}
+			resp, data, err := fetchDashboardData(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			_ = resp
+			widgets, _ := data["widgets"].([]any)
+			for _, w := range widgets {
+				wm, ok := w.(map[string]any)
+				if !ok {
+					continue
+				}
+				if id, _ := wm["id"].(string); id == args[1] {
+					return output.Render(cmd.OutOrStdout(), flags.Output, wm)
+				}
+			}
+			return signozerrors.NewInputValidationError("panel_not_found", fmt.Sprintf("panel %q not found in dashboard %q", args[1], args[0]))
+		},
+	}
+	panelGetCmd.Flags().StringVar(&panelGetProfile, "profile", "", "profile name override")
+	cmd.AddCommand(panelGetCmd)
+
+	var panelUpdateProfile string
+	var panelUpdateFile string
+	panelUpdateCmd := &cobra.Command{
+		Use:   "panel-update <dashboard-id> <panel-id>",
+		Short: "Update one panel/widget in a dashboard using panel JSON file",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if panelUpdateFile == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			rawPanel, err := os.ReadFile(panelUpdateFile)
+			if err != nil {
+				return err
+			}
+			var panel map[string]any
+			if err := json.Unmarshal(rawPanel, &panel); err != nil {
+				return errInvalidJSONPayload(err)
+			}
+			panel["id"] = args[1]
+
+			c, err := profileClient(flags, panelUpdateProfile)
+			if err != nil {
+				return err
+			}
+			_, data, err := fetchDashboardData(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+
+			widgets, _ := data["widgets"].([]any)
+			found := false
+			for i, w := range widgets {
+				wm, ok := w.(map[string]any)
+				if !ok {
+					continue
+				}
+				if id, _ := wm["id"].(string); id == args[1] {
+					widgets[i] = panel
+					found = true
+					break
+				}
+			}
+			if !found {
+				return signozerrors.NewInputValidationError("panel_not_found", fmt.Sprintf("panel %q not found in dashboard %q", args[1], args[0]))
+			}
+			data["widgets"] = widgets
+
+			updatedRaw, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
+			var updateResp map[string]any
+			if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], updatedRaw, &updateResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, updateResp)
+		},
+	}
+	panelUpdateCmd.Flags().StringVar(&panelUpdateProfile, "profile", "", "profile name override")
+	panelUpdateCmd.Flags().StringVar(&panelUpdateFile, "file", "", "panel JSON file")
+	cmd.AddCommand(panelUpdateCmd)
+
 	cmd.AddCommand(newDashboardPublicCreateCommand(flags))
 	cmd.AddCommand(newProfileGetByIDCommand(flags, "public-get <dashboard-id>", "Get public sharing config for a dashboard", "/api/v1/dashboards/%s/public"))
 	cmd.AddCommand(newDashboardPublicUpdateCommand(flags))
 	cmd.AddCommand(newProfileDeleteByIDCommand(flags, "public-delete <dashboard-id>", "Delete public sharing config for a dashboard", "/api/v1/dashboards/%s/public"))
 
 	return cmd
+}
+
+func fetchDashboardData(ctx context.Context, c *client.Client, dashboardID string) (map[string]any, map[string]any, error) {
+	var resp map[string]any
+	if err := c.GetJSON(ctx, "/api/v1/dashboards/"+dashboardID, &resp); err != nil {
+		return nil, nil, err
+	}
+	dataAny, ok := resp["data"]
+	if !ok {
+		return nil, nil, signozerrors.NewInputValidationError("invalid_dashboard_response", "dashboard response missing data")
+	}
+	dataWrap, ok := dataAny.(map[string]any)
+	if !ok {
+		return nil, nil, signozerrors.NewInputValidationError("invalid_dashboard_response", "dashboard response data is not an object")
+	}
+	payloadAny, ok := dataWrap["data"]
+	if !ok {
+		return nil, nil, signozerrors.NewInputValidationError("invalid_dashboard_response", "dashboard payload missing data.data")
+	}
+	payload, ok := payloadAny.(map[string]any)
+	if !ok {
+		return nil, nil, signozerrors.NewInputValidationError("invalid_dashboard_response", "dashboard payload data.data is not an object")
+	}
+	return resp, payload, nil
 }
 
 func newSystemCommand(flags *globalFlags) *cobra.Command {

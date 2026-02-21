@@ -171,9 +171,6 @@ func dashboardRecipeWidget(recipeID string, services []string) (map[string]any, 
 							"aggregations": []any{
 								map[string]any{"expression": "count()"},
 							},
-							"groupBy": []any{
-								map[string]any{"key": "service.name", "type": "resource", "dataType": "string", "isColumn": false, "isJSON": false},
-							},
 							"filter": map[string]any{
 								"expression": fmt.Sprintf("%s AND severity_text = 'error'", serviceExpression(svcs)),
 							},

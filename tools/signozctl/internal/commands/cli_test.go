@@ -683,6 +683,114 @@ func TestDashboardPublicCreatePostsPublicEndpoint(t *testing.T) {
 	}
 }
 
+func TestDashboardGetFetchesSingleDashboardByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	var hitPath string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards/dash-1", func(w http.ResponseWriter, r *http.Request) {
+		hitPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1","data":{"title":"One"}}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "get", "dash-1", "--profile", "local",
+	)
+	if err != nil {
+		t.Fatalf("expected dashboard get to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if hitPath != "/api/v1/dashboards/dash-1" {
+		t.Fatalf("unexpected endpoint path: %s", hitPath)
+	}
+	if !strings.Contains(stdout, `"id":"dash-1"`) {
+		t.Fatalf("expected dashboard id in output, got %q", stdout)
+	}
+}
+
+func TestDashboardPanelGetReturnsSinglePanel(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards/dash-1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1","data":{"title":"One","widgets":[{"id":"w1","title":"Widget 1"},{"id":"w2","title":"Widget 2"}]}}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "panel-get", "dash-1", "w2", "--profile", "local",
+	)
+	if err != nil {
+		t.Fatalf("expected dashboard panel-get to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"id":"w2"`) {
+		t.Fatalf("expected panel id w2 in output, got %q", stdout)
+	}
+}
+
+func TestDashboardPanelUpdateReplacesPanelAndPUTsDashboard(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	panelPath := filepath.Join(tmpDir, "panel.json")
+	if err := os.WriteFile(panelPath, []byte(`{"id":"w2","title":"Widget 2 Updated","panelTypes":"value"}`), 0o644); err != nil {
+		t.Fatalf("failed to write panel payload: %v", err)
+	}
+
+	var putBody string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dashboards/dash-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1","data":{"title":"One","widgets":[{"id":"w1","title":"Widget 1"},{"id":"w2","title":"Widget 2"}],"layout":[],"variables":{}}}}`)
+			return
+		}
+		if r.Method == http.MethodPut {
+			body, _ := io.ReadAll(r.Body)
+			putBody = string(body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-1"}}`)
+			return
+		}
+		t.Fatalf("unexpected method: %s", r.Method)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "panel-update", "dash-1", "w2", "--file", panelPath, "--profile", "local",
+	)
+	if err != nil {
+		t.Fatalf("expected dashboard panel-update to succeed, err=%v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(putBody, `"title":"Widget 2 Updated"`) {
+		t.Fatalf("expected updated panel title in PUT body, got %q", putBody)
+	}
+}
+
 func TestDashboardTemplateSchemaValidate(t *testing.T) {
 	stdout, stderr, err := runCLI(t, "--output", "json", "dashboard", "template", "--resource", "create")
 	if err != nil {
