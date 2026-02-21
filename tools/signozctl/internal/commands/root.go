@@ -625,6 +625,173 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	panelUpdateCmd.Flags().StringVar(&panelUpdateFile, "file", "", "panel JSON file")
 	cmd.AddCommand(panelUpdateCmd)
 
+	var panelListProfile string
+	panelListCmd := &cobra.Command{
+		Use:   "panel-list <dashboard-id>",
+		Short: "List panel/widget JSON for a dashboard",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := profileClient(flags, panelListProfile)
+			if err != nil {
+				return err
+			}
+			_, data, err := fetchDashboardData(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+			widgets, _ := data["widgets"].([]any)
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"dashboardId": args[0],
+				"widgets":     widgets,
+			})
+		},
+	}
+	panelListCmd.Flags().StringVar(&panelListProfile, "profile", "", "profile name override")
+	cmd.AddCommand(panelListCmd)
+
+	var panelAddProfile string
+	var panelAddFile string
+	var panelX int
+	var panelY int
+	var panelW int
+	var panelH int
+	panelAddCmd := &cobra.Command{
+		Use:   "panel-add <dashboard-id>",
+		Short: "Add a panel/widget to dashboard from panel JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if panelAddFile == "" {
+				return signozerrors.NewMissingRequiredFlagError("--file")
+			}
+			rawPanel, err := os.ReadFile(panelAddFile)
+			if err != nil {
+				return err
+			}
+			var panel map[string]any
+			if err := json.Unmarshal(rawPanel, &panel); err != nil {
+				return errInvalidJSONPayload(err)
+			}
+			panelID, _ := panel["id"].(string)
+			if strings.TrimSpace(panelID) == "" {
+				return signozerrors.NewInputValidationError("invalid_panel_payload", "panel id is required in panel JSON (`id`)")
+			}
+
+			c, err := profileClient(flags, panelAddProfile)
+			if err != nil {
+				return err
+			}
+			_, data, err := fetchDashboardData(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+
+			widgets, _ := data["widgets"].([]any)
+			for _, w := range widgets {
+				wm, ok := w.(map[string]any)
+				if !ok {
+					continue
+				}
+				if id, _ := wm["id"].(string); id == panelID {
+					return signozerrors.NewInputValidationError("panel_id_conflict", fmt.Sprintf("panel id %q already exists", panelID))
+				}
+			}
+			widgets = append(widgets, panel)
+			data["widgets"] = widgets
+
+			layout, _ := data["layout"].([]any)
+			layout = append(layout, map[string]any{
+				"i": panelID,
+				"x": panelX,
+				"y": panelY,
+				"w": panelW,
+				"h": panelH,
+			})
+			data["layout"] = layout
+
+			updatedRaw, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
+			var updateResp map[string]any
+			if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], updatedRaw, &updateResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, updateResp)
+		},
+	}
+	panelAddCmd.Flags().StringVar(&panelAddProfile, "profile", "", "profile name override")
+	panelAddCmd.Flags().StringVar(&panelAddFile, "file", "", "panel JSON file")
+	panelAddCmd.Flags().IntVar(&panelX, "x", 0, "layout x position")
+	panelAddCmd.Flags().IntVar(&panelY, "y", 0, "layout y position")
+	panelAddCmd.Flags().IntVar(&panelW, "w", 6, "layout width")
+	panelAddCmd.Flags().IntVar(&panelH, "h", 4, "layout height")
+	cmd.AddCommand(panelAddCmd)
+
+	var panelDeleteProfile string
+	panelDeleteCmd := &cobra.Command{
+		Use:   "panel-delete <dashboard-id> <panel-id>",
+		Short: "Delete a panel/widget from dashboard",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := profileClient(flags, panelDeleteProfile)
+			if err != nil {
+				return err
+			}
+			_, data, err := fetchDashboardData(cmd.Context(), c, args[0])
+			if err != nil {
+				return err
+			}
+
+			targetID := args[1]
+			widgets, _ := data["widgets"].([]any)
+			newWidgets := make([]any, 0, len(widgets))
+			removed := false
+			for _, w := range widgets {
+				wm, ok := w.(map[string]any)
+				if !ok {
+					newWidgets = append(newWidgets, w)
+					continue
+				}
+				if id, _ := wm["id"].(string); id == targetID {
+					removed = true
+					continue
+				}
+				newWidgets = append(newWidgets, w)
+			}
+			if !removed {
+				return signozerrors.NewInputValidationError("panel_not_found", fmt.Sprintf("panel %q not found in dashboard %q", targetID, args[0]))
+			}
+			data["widgets"] = newWidgets
+
+			layout, _ := data["layout"].([]any)
+			newLayout := make([]any, 0, len(layout))
+			for _, li := range layout {
+				lm, ok := li.(map[string]any)
+				if !ok {
+					newLayout = append(newLayout, li)
+					continue
+				}
+				if i, _ := lm["i"].(string); i == targetID {
+					continue
+				}
+				newLayout = append(newLayout, li)
+			}
+			data["layout"] = newLayout
+
+			updatedRaw, err := json.Marshal(data)
+			if err != nil {
+				return err
+			}
+			var updateResp map[string]any
+			if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], updatedRaw, &updateResp); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, updateResp)
+		},
+	}
+	panelDeleteCmd.Flags().StringVar(&panelDeleteProfile, "profile", "", "profile name override")
+	cmd.AddCommand(panelDeleteCmd)
+
 	cmd.AddCommand(newDashboardPublicCreateCommand(flags))
 	cmd.AddCommand(newProfileGetByIDCommand(flags, "public-get <dashboard-id>", "Get public sharing config for a dashboard", "/api/v1/dashboards/%s/public"))
 	cmd.AddCommand(newDashboardPublicUpdateCommand(flags))
