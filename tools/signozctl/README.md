@@ -29,6 +29,12 @@ go build ./cmd/signozctl
   --output json
 ```
 
+Rotate tokens explicitly when needed:
+
+```bash
+./signozctl auth refresh --profile local --output json
+```
+
 3. Run query payloads:
 
 ```bash
@@ -85,6 +91,20 @@ Dashboard public sharing:
 ./signozctl dashboard public-update <dashboard-id> --file examples/dashboard-public.json --profile local --output json
 ```
 
+Docs-intelligence from CLI:
+
+```bash
+./signozctl docs search "trace waterfall" --limit 5 --output json
+./signozctl docs fetch https://signoz.io/docs/traces-management/trace-waterfall --output json
+```
+
+Optional encrypted local config:
+
+```bash
+export SIGNOZCTL_CONFIG_PASSPHRASE='your-strong-passphrase'
+./signozctl auth login --host http://localhost:8080 --email you@example.com --password '...' --profile local
+```
+
 Templates, schemas, and local validation for other domains:
 
 ```bash
@@ -103,12 +123,12 @@ Templates, schemas, and local validation for other domains:
 
 ## Implemented command groups
 
-- `auth`: `login`, `status`, `logout`, `use`, `profiles`
+- `auth`: `login`, `status`, `refresh`, `logout`, `use`, `profiles`
 - `query`: traces/logs/metrics via `/api/v5/query_range`, plus services/dependency/error commands
 - `dashboard`: `list`, `create`, `update`, `delete`
 - `alerts`: alerts/rules/channels/route-policies/downtime + test helpers
 - `iam`: invite, roles, api-keys, users
 - `system`: health/version/usage/disks/raw-export/ttl/apdex
-- `docs`: deferred placeholders (`search`, `fetch`) per `AGENTS.md`
+- `docs`: `search`, `fetch` (sitemap search + markdown-like fetch for `/docs/*`)
 
 Run `--help` on every group/command for details.

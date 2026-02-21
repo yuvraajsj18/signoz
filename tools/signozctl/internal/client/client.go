@@ -16,6 +16,8 @@ import (
 type Client struct {
 	BaseURL    string
 	Token      string
+	Refresh    string
+	OnRotated  func(accessToken, refreshToken string) error
 	HTTPClient *http.Client
 }
 
@@ -77,25 +79,95 @@ func (c *Client) Delete(ctx context.Context, path string, out any) error {
 }
 
 func (c *Client) do(req *http.Request, out any) error {
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.doOnce(req, out, c.Token)
 	if err != nil {
 		return err
 	}
+	if resp == nil {
+		return nil
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized && c.Token != "" && c.Refresh != "" {
+		if rotated, rotateErr := c.rotateToken(req.Context()); rotateErr == nil && rotated {
+			return c.do(req, out)
+		}
+	}
+	return c.handleResponse(resp, out)
+}
+
+func (c *Client) doOnce(req *http.Request, out any, token string) (*http.Response, error) {
+	r := req.Clone(req.Context())
+	if req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		r.Body = body
+	} else {
+		r.Body = req.Body
+	}
+
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	return c.HTTPClient.Do(r)
+}
+
+func (c *Client) rotateToken(ctx context.Context) (bool, error) {
+	payload := map[string]string{"refreshToken": c.Refresh}
+	var resp struct {
+		Data struct {
+			AccessToken  string `json:"accessToken"`
+			RefreshToken string `json:"refreshToken"`
+		} `json:"data"`
+	}
+
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v2/sessions/rotate", bytes.NewReader(reqBody))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	httpResp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer httpResp.Body.Close()
+	b, _ := io.ReadAll(httpResp.Body)
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return false, signozerrors.ParseAPIError(httpResp.StatusCode, b)
+	}
+	if err := json.Unmarshal(b, &resp); err != nil {
+		return false, fmt.Errorf("failed to decode token rotate response: %w", err)
+	}
+	if resp.Data.AccessToken == "" || resp.Data.RefreshToken == "" {
+		return false, fmt.Errorf("token rotate response missing tokens")
+	}
+
+	c.Token = resp.Data.AccessToken
+	c.Refresh = resp.Data.RefreshToken
+	if c.OnRotated != nil {
+		if err := c.OnRotated(c.Token, c.Refresh); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (c *Client) handleResponse(resp *http.Response, out any) error {
 	defer resp.Body.Close()
 
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return signozerrors.ParseAPIError(resp.StatusCode, b)
 	}
-
-	if out == nil {
-		return nil
-	}
-	if len(b) == 0 {
+	if out == nil || len(b) == 0 {
 		return nil
 	}
 	if err := json.Unmarshal(b, out); err != nil {

@@ -41,9 +41,12 @@ Implemented:
 - `auth status`
 - `query traces` (v5 payload)
 - `dashboard create/delete`
+ - `query trace-root`, `query trace-waterfall`, `query trace-flamegraph`
+ - `dashboard public-create/public-delete`
 8. Baseline normalized API error model implemented:
 - status/code -> error class mapping
 - actionable hint text in returned errors
+ - local validation errors now emit same structured contract (`class/code/message/hint`)
 9. Query payload ergonomics added:
 - `query template --signal <traces|logs|metrics>` for runnable payload generation
 - `query schema --signal <...>` for payload shape guidance
@@ -59,13 +62,22 @@ Implemented:
 12. UX improvements from live usage feedback:
 - `query trace-waterfall` and `query trace-flamegraph` no longer require `--file` (default request body is `{}`)
 - dashboard create schema now includes nested field hints (`widgets/query`, `layout`, `variables`) for agent payload authoring
+13. Auth/session hardening:
+- automatic session rotate + retry on `401` for profile-backed API calls
+- explicit `auth refresh` command
+- optional encrypted local config storage via `SIGNOZCTL_CONFIG_PASSPHRASE`
+14. Docs-intelligence implemented:
+- `docs search <query>` via `sitemap.xml` filtering + fuzzy URL ranking
+- `docs fetch <signoz docs url>` with markdown-like content extraction for `/docs/*`
+15. Template/schema fidelity updates:
+- public dashboard payload aligned to `timeRangeEnabled/defaultTimeRange`
+- alerts and IAM templates/schemas validated against backend type expectations
 
 Not yet complete:
-1. Expand live integration coverage across alerts/iam/system/public sharing flows
-2. Apply guidance-first error wrapping consistently for all command paths and document machine-readable error contract
-3. Improve template/schema fidelity with tighter endpoint-specific field contracts (from full API specs/types)
-4. Docs-intelligence implementation (`docs search`, `docs fetch`) is still deferred
-5. Auth hardening (refresh ergonomics, secure secret storage upgrades, CI-first flows)
+1. Expand live integration coverage across alerts/iam/system flows (public sharing and trace helper flows are now covered)
+2. Continue tightening template/schema contracts for all nested endpoint payload variants (especially advanced alert rule condition payloads)
+3. Add docs fetch improvements for richer markdown conversion fidelity
+4. Add additional secret-storage backends (OS keychain/vault) beyond env-passphrase encrypted file mode
 
 ---
 

@@ -1,12 +1,12 @@
 package commands
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/SigNoz/signoz/tools/signozctl/internal/client"
+	"github.com/SigNoz/signoz/tools/signozctl/internal/config"
+	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -78,30 +78,6 @@ func newIAMCommand(flags *globalFlags) *cobra.Command {
 	return cmd
 }
 
-func newDocsCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "docs",
-		Short: "CLI-native docs and docs-intelligence placeholders",
-	}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "search <query>",
-		Short: "Search SigNoz docs (deferred implementation)",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not implemented yet: docs search is deferred (query=%q) and tracked in tools/signozctl/AGENTS.md", strings.Join(args, " "))
-		},
-	})
-	cmd.AddCommand(&cobra.Command{
-		Use:   "fetch <url>",
-		Short: "Fetch docs page content as markdown (deferred implementation)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("not implemented yet: docs fetch is deferred in tools/signozctl/AGENTS.md (url=%s)", args[0])
-		},
-	})
-	return cmd
-}
-
 func buildCRUDGroup(flags *globalFlags, name, basePath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   name,
@@ -166,7 +142,7 @@ func newProfilePostFromFileCommand(flags *globalFlags, use, short, path string) 
 		Short: short,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
@@ -197,7 +173,7 @@ func newProfilePutByIDFromFileCommand(flags *globalFlags, use, short, pathFmt st
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
@@ -250,7 +226,7 @@ func newProfilePostByIDFromFileCommand(flags *globalFlags, use, short, pathFmt s
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
@@ -305,12 +281,28 @@ func newProfilePostByIDWithOptionalFileCommand(flags *globalFlags, use, short, p
 }
 
 func profileClient(flags *globalFlags, localProfile string) (*client.Client, error) {
-	_, prof, _, err := loadProfileFromFlags(flags, localProfile)
+	cfg, prof, profileName, err := loadProfileFromFlags(flags, localProfile)
 	if err != nil {
 		return nil, err
 	}
 	if prof.AccessToken == "" {
-		return nil, errors.New("profile is not authenticated; run `signozctl auth login` first")
+		return nil, signozerrors.NewAuthRequiredError("profile_not_authenticated", "profile is not authenticated; run `signozctl auth login` first")
 	}
-	return client.New(prof.Host, prof.AccessToken), nil
+	c := client.New(prof.Host, prof.AccessToken)
+	c.Refresh = prof.RefreshToken
+	c.OnRotated = func(accessToken, refreshToken string) error {
+		latest, err := config.Load(flags.ConfigPath)
+		if err != nil {
+			return err
+		}
+		p, ok := latest.Profiles[profileName]
+		if !ok {
+			p = cfg.Profiles[profileName]
+		}
+		p.AccessToken = accessToken
+		p.RefreshToken = refreshToken
+		latest.Profiles[profileName] = p
+		return config.Save(flags.ConfigPath, latest)
+	}
+	return c, nil
 }

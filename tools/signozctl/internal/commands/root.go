@@ -13,6 +13,7 @@ import (
 
 	"github.com/SigNoz/signoz/tools/signozctl/internal/client"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/config"
+	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +43,7 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newAlertsCommand(flags))
 	cmd.AddCommand(newIAMCommand(flags))
 	cmd.AddCommand(newSystemCommand(flags))
-	cmd.AddCommand(newDocsCommand())
+	cmd.AddCommand(newDocsCommand(flags))
 
 	return cmd
 }
@@ -63,7 +64,7 @@ func newAuthCommand(flags *globalFlags) *cobra.Command {
 		Short: "Create a SigNoz session and store profile tokens",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if host == "" || email == "" || password == "" {
-				return errors.New("missing required flags: --host, --email, --password")
+				return signozerrors.NewInputValidationError("missing_required_flags", "missing required flags: --host, --email, --password")
 			}
 			profileName := chooseProfile(flags.Profile, loginProfile)
 			if profileName == "" {
@@ -182,6 +183,46 @@ func newAuthCommand(flags *globalFlags) *cobra.Command {
 	logoutCmd.Flags().StringVar(&logoutProfile, "profile", "", "profile name override")
 	cmd.AddCommand(logoutCmd)
 
+	var refreshProfile string
+	refreshCmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Rotate access/refresh tokens for a profile session",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load(flags.ConfigPath)
+			if err != nil {
+				return err
+			}
+			profileName := chooseProfile(flags.Profile, refreshProfile)
+			prof, name, err := currentProfile(cfg, profileName)
+			if err != nil {
+				return err
+			}
+			if prof.AccessToken == "" || prof.RefreshToken == "" {
+				return signozerrors.NewAuthRequiredError("profile_not_authenticated", "profile is missing session tokens; run `signozctl auth login` first")
+			}
+
+			accessToken, refreshToken, err := rotateSession(cmd.Context(), prof.Host, prof.AccessToken, prof.RefreshToken)
+			if err != nil {
+				return err
+			}
+			prof.AccessToken = accessToken
+			prof.RefreshToken = refreshToken
+			cfg.Profiles[name] = prof
+			if err := config.Save(flags.ConfigPath, cfg); err != nil {
+				return err
+			}
+
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"profile":       name,
+				"host":          prof.Host,
+				"authenticated": true,
+				"rotated":       true,
+			})
+		},
+	}
+	refreshCmd.Flags().StringVar(&refreshProfile, "profile", "", "profile name override")
+	cmd.AddCommand(refreshCmd)
+
 	useCmd := &cobra.Command{
 		Use:   "use <profile>",
 		Short: "Set active profile",
@@ -288,7 +329,7 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 		Short: short,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
@@ -297,7 +338,7 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 			if last != "" {
 				duration, err := parseRelativeDuration(last)
 				if err != nil {
-					return fmt.Errorf("invalid --last value %q: %w", last, err)
+					return signozerrors.NewInputValidationError("invalid_relative_duration", fmt.Sprintf("invalid --last value %q: %v", last, err))
 				}
 				end := time.Now().UnixMilli()
 				start := end - duration.Milliseconds()
@@ -309,16 +350,10 @@ func newQueryFileCommand(flags *globalFlags, use, path, short string) *cobra.Com
 					return fmt.Errorf("failed to apply --last time range: %w", err)
 				}
 			}
-			cfg, prof, _, err := loadProfileFromFlags(flags, localProfile)
-			_ = cfg
+			c, err := profileClient(flags, localProfile)
 			if err != nil {
 				return err
 			}
-			if prof.AccessToken == "" {
-				return errors.New("profile is not authenticated; run `signozctl auth login` first")
-			}
-
-			c := client.New(prof.Host, prof.AccessToken)
 			var resp map[string]any
 			if err := c.PostRawJSON(cmd.Context(), path, raw, &resp); err != nil {
 				return err
@@ -349,17 +384,16 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 		Short: "Create a dashboard from JSON file",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
 				return err
 			}
-			_, prof, _, err := loadProfileFromFlags(flags, localProfile)
+			c, err := profileClient(flags, localProfile)
 			if err != nil {
 				return err
 			}
-			c := client.New(prof.Host, prof.AccessToken)
 			var resp map[string]any
 			if err := c.PostRawJSON(cmd.Context(), "/api/v1/dashboards", raw, &resp); err != nil {
 				return err
@@ -376,11 +410,10 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 		Use:   "list",
 		Short: "List dashboards",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, prof, _, err := loadProfileFromFlags(flags, listProfile)
+			c, err := profileClient(flags, listProfile)
 			if err != nil {
 				return err
 			}
-			c := client.New(prof.Host, prof.AccessToken)
 			var resp map[string]any
 			if err := c.GetJSON(cmd.Context(), "/api/v1/dashboards", &resp); err != nil {
 				return err
@@ -399,17 +432,16 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if updateFile == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(updateFile)
 			if err != nil {
 				return err
 			}
-			_, prof, _, err := loadProfileFromFlags(flags, updateProfile)
+			c, err := profileClient(flags, updateProfile)
 			if err != nil {
 				return err
 			}
-			c := client.New(prof.Host, prof.AccessToken)
 			var resp map[string]any
 			if err := c.PutRawJSON(cmd.Context(), "/api/v1/dashboards/"+args[0], raw, &resp); err != nil {
 				return err
@@ -427,11 +459,10 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 		Short: "Delete dashboard by ID",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, prof, _, err := loadProfileFromFlags(flags, deleteProfile)
+			c, err := profileClient(flags, deleteProfile)
 			if err != nil {
 				return err
 			}
-			c := client.New(prof.Host, prof.AccessToken)
 			var resp map[string]any
 			if err := c.Delete(cmd.Context(), "/api/v1/dashboards/"+args[0], &resp); err != nil {
 				return err
@@ -529,6 +560,23 @@ func fetchOrgID(ctx context.Context, c *client.Client, email, host string) (stri
 	return ctxResp.Data.Orgs[0].ID, nil
 }
 
+func rotateSession(ctx context.Context, host, accessToken, refreshToken string) (string, string, error) {
+	c := client.New(host, accessToken)
+	var rotateResp struct {
+		Data struct {
+			AccessToken  string `json:"accessToken"`
+			RefreshToken string `json:"refreshToken"`
+		} `json:"data"`
+	}
+	if err := c.PostJSON(ctx, "/api/v2/sessions/rotate", map[string]string{"refreshToken": refreshToken}, &rotateResp); err != nil {
+		return "", "", err
+	}
+	if rotateResp.Data.AccessToken == "" || rotateResp.Data.RefreshToken == "" {
+		return "", "", fmt.Errorf("rotate session response missing tokens")
+	}
+	return rotateResp.Data.AccessToken, rotateResp.Data.RefreshToken, nil
+}
+
 func chooseProfile(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -574,7 +622,7 @@ func hostOrProfileHost(flags *globalFlags, hostFlag string) (string, error) {
 	}
 	_, prof, _, err := loadProfileFromFlags(flags, "")
 	if err != nil {
-		return "", errors.New("missing host: use --host or authenticate with a profile")
+		return "", signozerrors.NewInputValidationError("missing_host", "missing host: use --host or authenticate with a profile")
 	}
 	return prof.Host, nil
 }

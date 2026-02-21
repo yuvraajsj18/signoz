@@ -27,6 +27,28 @@ type APIError struct {
 	RawBody string
 }
 
+func NewLocalError(class Class, status int, code, message, hint string) *APIError {
+	return &APIError{
+		Status:  status,
+		Class:   class,
+		Code:    code,
+		Message: message,
+		Hint:    hint,
+	}
+}
+
+func NewInputValidationError(code, message string) *APIError {
+	return NewLocalError(ClassInputValidation, 400, code, message, hintForClass(ClassInputValidation))
+}
+
+func NewMissingRequiredFlagError(flag string) *APIError {
+	return NewInputValidationError("missing_required_flag", fmt.Sprintf("missing required flag: %s", flag))
+}
+
+func NewAuthRequiredError(code, message string) *APIError {
+	return NewLocalError(ClassAuthRequired, 401, code, message, hintForClass(ClassAuthRequired))
+}
+
 func (e *APIError) Error() string {
 	parts := []string{
 		fmt.Sprintf("class=%s", e.Class),

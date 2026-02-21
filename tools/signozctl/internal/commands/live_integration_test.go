@@ -179,3 +179,191 @@ func TestLiveDashboardCreateAndDelete(t *testing.T) {
 		t.Fatalf("dashboard delete failed for id=%s: %v stderr=%s", id, err, deleteErr)
 	}
 }
+
+func TestLiveTraceRootWaterfallFlamegraph(t *testing.T) {
+	cfgPath, profile := requireLiveEnv(t)
+	tmpDir := t.TempDir()
+	payloadPath := filepath.Join(tmpDir, "query-traces.json")
+	now := time.Now().UnixMilli()
+	start := now - int64((30 * time.Minute).Milliseconds())
+
+	payload := fmt.Sprintf(`{
+  "schemaVersion": "v1",
+  "start": %d,
+  "end": %d,
+  "requestType": "trace",
+  "compositeQuery": {
+    "queries": [
+      {
+        "type": "builder_query",
+        "spec": {
+          "name": "A",
+          "signal": "traces",
+          "stepInterval": 60,
+          "aggregations": [{"expression": "count()"}],
+          "order": [{"key": {"name": "timestamp"}, "direction": "desc"}],
+          "limit": 1
+        }
+      }
+    ]
+  }
+}`, start, now)
+
+	if err := os.WriteFile(payloadPath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("failed to write payload: %v", err)
+	}
+
+	out, stderr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"query", "traces",
+		"--file", payloadPath,
+	)
+	if err != nil {
+		t.Fatalf("query traces failed: %v stderr=%s", err, stderr)
+	}
+	resp := mustJSONMap(t, out)
+	traceID := extractTraceIDFromQueryResponse(resp)
+	if traceID == "" {
+		t.Skip("no trace id found in recent trace query results; ensure traffic generation is active")
+	}
+
+	rootOut, rootErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"query", "trace-root", traceID,
+	)
+	if err != nil {
+		t.Fatalf("trace-root failed for traceID=%s: %v stderr=%s", traceID, err, rootErr)
+	}
+	rootResp := mustJSONMap(t, rootOut)
+	rootSpanID, _ := rootResp["rootSpanId"].(string)
+	if rootSpanID == "" {
+		t.Fatalf("trace-root did not return rootSpanId: %v", rootResp)
+	}
+
+	waterfallOut, waterfallErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"query", "trace-waterfall", traceID,
+		"--expand-all",
+	)
+	if err != nil {
+		t.Fatalf("trace-waterfall failed for traceID=%s: %v stderr=%s", traceID, err, waterfallErr)
+	}
+	if !strings.Contains(waterfallOut, `"spans"`) {
+		t.Fatalf("unexpected trace-waterfall response: %s", waterfallOut)
+	}
+
+	flameOut, flameErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"query", "trace-flamegraph", traceID,
+		"--selected-span-id", rootSpanID,
+	)
+	if err != nil {
+		t.Fatalf("trace-flamegraph failed for traceID=%s rootSpanID=%s: %v stderr=%s", traceID, rootSpanID, err, flameErr)
+	}
+	if !strings.Contains(flameOut, "{") {
+		t.Fatalf("unexpected trace-flamegraph response: %s", flameOut)
+	}
+}
+
+func TestLiveDashboardPublicCreateAndDelete(t *testing.T) {
+	cfgPath, profile := requireLiveEnv(t)
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "dashboard.json")
+	title := fmt.Sprintf("signozctl-public-e2e-%d", time.Now().UnixNano())
+
+	body := fmt.Sprintf(`{
+  "title": %q,
+  "description": "signozctl public e2e test",
+  "widgets": [],
+  "layout": [],
+  "variables": {}
+}`, title)
+	if err := os.WriteFile(filePath, []byte(body), 0o644); err != nil {
+		t.Fatalf("failed to write dashboard payload: %v", err)
+	}
+
+	createOut, createErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"dashboard", "create",
+		"--file", filePath,
+	)
+	if err != nil {
+		t.Fatalf("dashboard create failed: %v stderr=%s", err, createErr)
+	}
+	resp := mustJSONMap(t, createOut)
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected create response data: %v", resp)
+	}
+	id, _ := data["id"].(string)
+	if id == "" {
+		t.Fatalf("dashboard id missing in create response: %v", resp)
+	}
+
+	_, publicCreateErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"dashboard", "public-create", id,
+		"--enabled",
+	)
+	if err != nil {
+		t.Fatalf("dashboard public-create failed for id=%s: %v stderr=%s", id, err, publicCreateErr)
+	}
+
+	_, publicDeleteErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"dashboard", "public-delete", id,
+	)
+	if err != nil {
+		t.Fatalf("dashboard public-delete failed for id=%s: %v stderr=%s", id, err, publicDeleteErr)
+	}
+
+	_, deleteErr, err := runLiveCLI(
+		t,
+		"--config", cfgPath,
+		"--profile", profile,
+		"--output", "json",
+		"dashboard", "delete", id,
+	)
+	if err != nil {
+		t.Fatalf("dashboard delete failed for id=%s: %v stderr=%s", id, err, deleteErr)
+	}
+}
+
+func extractTraceIDFromQueryResponse(resp map[string]any) string {
+	data, _ := resp["data"].(map[string]any)
+	dataObj, _ := data["data"].(map[string]any)
+	results, _ := dataObj["results"].([]any)
+	if len(results) == 0 {
+		return ""
+	}
+	firstResult, _ := results[0].(map[string]any)
+	rows, _ := firstResult["rows"].([]any)
+	if len(rows) == 0 {
+		return ""
+	}
+	firstRow, _ := rows[0].(map[string]any)
+	rowData, _ := firstRow["data"].(map[string]any)
+	traceID, _ := rowData["trace_id"].(string)
+	return traceID
+}

@@ -2,12 +2,12 @@ package commands
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -53,7 +53,7 @@ func newQueryValidateCommand(flags *globalFlags) *cobra.Command {
 		Short: "Validate query payload file locally",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if filePath == "" {
-				return errors.New("missing required flag: --file")
+				return signozerrors.NewMissingRequiredFlagError("--file")
 			}
 			raw, err := os.ReadFile(filePath)
 			if err != nil {
@@ -215,24 +215,24 @@ func decodePayload(raw []byte) (map[string]any, error) {
 
 func validateQueryPayload(payload map[string]any) error {
 	if _, ok := payload["schemaVersion"].(string); !ok {
-		return errors.New("schemaVersion is required and must be a string")
+		return signozerrors.NewInputValidationError("invalid_payload", "schemaVersion is required and must be a string")
 	}
 	if _, ok := payload["requestType"].(string); !ok {
-		return errors.New("requestType is required and must be a string")
+		return signozerrors.NewInputValidationError("invalid_payload", "requestType is required and must be a string")
 	}
 	composite, ok := payload["compositeQuery"].(map[string]any)
 	if !ok {
-		return errors.New("compositeQuery is required and must be an object")
+		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery is required and must be an object")
 	}
 	queries, ok := composite["queries"].([]any)
 	if !ok || len(queries) == 0 {
-		return errors.New("compositeQuery.queries is required and must be a non-empty array")
+		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery.queries is required and must be a non-empty array")
 	}
 
 	startVal, hasStart := numberFromAny(payload["start"])
 	endVal, hasEnd := numberFromAny(payload["end"])
 	if hasStart && hasEnd && startVal >= endVal {
-		return errors.New("start must be before end")
+		return signozerrors.NewInputValidationError("invalid_time_range", "start must be before end")
 	}
 	return nil
 }

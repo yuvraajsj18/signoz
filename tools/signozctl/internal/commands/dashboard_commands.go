@@ -29,7 +29,7 @@ func newDashboardPublicUpsertCommand(flags *globalFlags, use, short, method stri
 				return err
 			}
 			if cmd.Flags().Changed("enabled") {
-				payload["isEnabled"] = enabled
+				payload["timeRangeEnabled"] = enabled
 			}
 			c, err := profileClient(flags, profile)
 			if err != nil {
@@ -55,4 +55,3 @@ func newDashboardPublicUpsertCommand(flags *globalFlags, use, short, method stri
 	cmd.Flags().BoolVar(&enabled, "enabled", false, "set public sharing enable state")
 	return cmd
 }
-
