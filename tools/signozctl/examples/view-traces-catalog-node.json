@@ -1,0 +1,54 @@
+{
+  "name": "Catalog Node Saved View",
+  "sourcePage": "traces",
+  "category": "",
+  "tags": [],
+  "extraData": "{}",
+  "compositeQuery": {
+    "queryType": "builder",
+    "panelType": "list",
+    "unit": "none",
+    "builderQueries": {
+      "A": {
+        "queryName": "A",
+        "dataSource": "traces",
+        "aggregateOperator": "count",
+        "aggregateAttribute": {
+          "key": "",
+          "type": "",
+          "dataType": ""
+        },
+        "timeAggregation": "rate",
+        "spaceAggregation": "sum",
+        "stepInterval": 60,
+        "filter": {
+          "expression": "service.name = 'catalog-node'"
+        },
+        "filters": {
+          "op": "AND",
+          "items": [
+            {
+              "key": {
+                "key": "service.name",
+                "dataType": "string",
+                "type": "resource",
+                "isColumn": false,
+                "isJSON": false
+              },
+              "op": "=",
+              "value": "catalog-node"
+            }
+          ]
+        },
+        "groupBy": [],
+        "expression": "A",
+        "disabled": false,
+        "having": [],
+        "limit": 20,
+        "orderBy": [],
+        "legend": "",
+        "functions": []
+      }
+    }
+  }
+}

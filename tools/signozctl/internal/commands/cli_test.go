@@ -1436,3 +1436,39 @@ func TestViewCRUDEndpoints(t *testing.T) {
 		t.Fatalf("unexpected list endpoint hit: %s", hits[0])
 	}
 }
+
+func TestViewTemplateSchemaValidate(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--output", "json", "view", "template", "--source-page", "traces", "--service-name", "catalog-node")
+	if err != nil {
+		t.Fatalf("view template failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"name"`, `"sourcePage"`, `"compositeQuery"`, `catalog-node`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in view template output, got %q", expected, stdout)
+		}
+	}
+
+	stdout, stderr, err = runCLI(t, "--output", "json", "view", "schema", "--source-page", "traces")
+	if err != nil {
+		t.Fatalf("view schema failed: %v stderr=%s", err, stderr)
+	}
+	for _, expected := range []string{`"required"`, `"compositeQuery.queryType"`, `builderQueries`} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected %s in view schema output, got %q", expected, stdout)
+		}
+	}
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "view.json")
+	payload := `{"name":"Catalog Node Saved View","sourcePage":"traces","compositeQuery":{"queryType":"builder","panelType":"list","unit":"none","builderQueries":{"A":{"queryName":"A","dataSource":"traces","aggregateOperator":"count","aggregateAttribute":{"key":"","type":"","dataType":""},"timeAggregation":"rate","spaceAggregation":"sum","stepInterval":60,"filter":{"expression":"service.name = 'catalog-node'"},"groupBy":[],"expression":"A","disabled":false,"having":[],"limit":20,"orderBy":[],"legend":"","functions":[]}}},"extraData":"{}"}`
+	if err := os.WriteFile(filePath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("write view payload: %v", err)
+	}
+	stdout, stderr, err = runCLI(t, "--output", "json", "view", "validate", "--file", filePath)
+	if err != nil {
+		t.Fatalf("view validate failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"valid":true`) {
+		t.Fatalf("expected valid=true, got %q", stdout)
+	}
+}

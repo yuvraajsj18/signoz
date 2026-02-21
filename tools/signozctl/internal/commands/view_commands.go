@@ -16,6 +16,67 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 		Short: "Saved views for traces/logs/metrics explorer",
 	}
 
+	var templateSourcePage string
+	var templateServiceName string
+	var templateName string
+	var templateExtraData string
+	templateCmd := &cobra.Command{
+		Use:   "template",
+		Short: "Generate saved-view payload template",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			name := strings.TrimSpace(templateName)
+			if name == "" {
+				name = "signozctl saved view"
+			}
+			payload, err := buildSavedViewPayloadFromFlags(name, templateSourcePage, templateServiceName, templateExtraData)
+			if err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, payload)
+		},
+	}
+	templateCmd.Flags().StringVar(&templateSourcePage, "source-page", "traces", "source page: traces|logs|metrics")
+	templateCmd.Flags().StringVar(&templateServiceName, "service-name", "", "service.name filter convenience (traces/logs)")
+	templateCmd.Flags().StringVar(&templateName, "name", "signozctl saved view", "saved view name")
+	templateCmd.Flags().StringVar(&templateExtraData, "extra-data", "{}", "extraData JSON string")
+	cmd.AddCommand(templateCmd)
+
+	var schemaSourcePage string
+	schemaCmd := &cobra.Command{
+		Use:   "schema",
+		Short: "Show saved-view payload schema idea",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			schema, err := buildSavedViewSchema(schemaSourcePage)
+			if err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, schema)
+		},
+	}
+	schemaCmd.Flags().StringVar(&schemaSourcePage, "source-page", "traces", "source page: traces|logs|metrics")
+	cmd.AddCommand(schemaCmd)
+
+	var validateFile string
+	validateCmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate saved-view payload file locally",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			payload, err := loadPayloadFile(validateFile)
+			if err != nil {
+				return err
+			}
+			if err := validateSavedViewPayload(payload); err != nil {
+				return err
+			}
+			return output.Render(cmd.OutOrStdout(), flags.Output, map[string]any{
+				"valid": true,
+				"file":  validateFile,
+			})
+		},
+	}
+	validateCmd.Flags().StringVar(&validateFile, "file", "", "JSON payload file")
+	cmd.AddCommand(validateCmd)
+
 	var listProfile string
 	var sourcePage string
 	var category string
@@ -109,6 +170,51 @@ func newViewCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(newProfileDeleteByIDCommand(flags, "delete <view-id>", "Delete saved view by ID", "/api/v1/explorer/views/%s"))
 
 	return cmd
+}
+
+func buildSavedViewSchema(sourcePage string) (map[string]any, error) {
+	sourcePage = strings.ToLower(strings.TrimSpace(sourcePage))
+	if sourcePage != "traces" && sourcePage != "logs" && sourcePage != "metrics" {
+		return nil, errInvalidOption("source-page", sourcePage, "traces|logs|metrics")
+	}
+	return map[string]any{
+		"resource":   "saved-view",
+		"sourcePage": sourcePage,
+		"required":   []string{"name", "sourcePage", "compositeQuery"},
+		"optional":   []string{"category", "tags", "extraData"},
+		"nestedHints": []string{
+			"compositeQuery.queryType",
+			"compositeQuery.panelType",
+			"compositeQuery.unit",
+			"compositeQuery.builderQueries.<name>.dataSource",
+			"compositeQuery.builderQueries.<name>.aggregateOperator",
+			"compositeQuery.builderQueries.<name>.filters.items[]",
+		},
+	}, nil
+}
+
+func validateSavedViewPayload(payload map[string]any) error {
+	if _, ok := payload["name"].(string); !ok {
+		return signozerrors.NewInputValidationError("invalid_payload", "name is required and must be a string")
+	}
+	sp, ok := payload["sourcePage"].(string)
+	if !ok {
+		return signozerrors.NewInputValidationError("invalid_payload", "sourcePage is required and must be a string")
+	}
+	if _, err := buildSavedViewSchema(sp); err != nil {
+		return err
+	}
+	composite, ok := payload["compositeQuery"].(map[string]any)
+	if !ok {
+		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery is required and must be an object")
+	}
+	if _, ok := composite["queryType"].(string); !ok {
+		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery.queryType is required and must be a string")
+	}
+	if _, ok := composite["builderQueries"].(map[string]any); !ok {
+		return signozerrors.NewInputValidationError("invalid_payload", "compositeQuery.builderQueries is required and must be an object")
+	}
+	return nil
 }
 
 func buildSavedViewPayloadFromFlags(name, sourcePage, serviceName, extraData string) (map[string]any, error) {

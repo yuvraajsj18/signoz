@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -676,14 +675,14 @@ func applyTimeRange(raw []byte, startMillis, endMillis int64) ([]byte, error) {
 func parseRelativeDuration(raw string) (time.Duration, error) {
 	v := strings.TrimSpace(strings.ToLower(raw))
 	if v == "" {
-		return 0, errors.New("duration is empty")
+		return 0, signozerrors.NewInputValidationError("invalid_relative_duration", "duration is empty")
 	}
 
 	if strings.HasSuffix(v, "d") || strings.HasSuffix(v, "w") {
 		unit := v[len(v)-1]
 		n, err := strconv.Atoi(v[:len(v)-1])
 		if err != nil || n <= 0 {
-			return 0, errors.New("expected positive integer before d/w")
+			return 0, signozerrors.NewInputValidationError("invalid_relative_duration", "expected positive integer before d/w")
 		}
 		switch unit {
 		case 'd':
@@ -698,7 +697,7 @@ func parseRelativeDuration(raw string) (time.Duration, error) {
 		return 0, err
 	}
 	if duration <= 0 {
-		return 0, errors.New("duration must be > 0")
+		return 0, signozerrors.NewInputValidationError("invalid_relative_duration", "duration must be > 0")
 	}
 	return duration, nil
 }

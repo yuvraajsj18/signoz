@@ -49,6 +49,20 @@ Live tail logs via polling:
 ./signozctl query logs-tail --file examples/query-logs-v5.json --profile local --interval 2s --last 5m --output json
 ```
 
+Saved views (traces/logs/metrics explorer):
+
+```bash
+./signozctl view template --source-page traces --service-name catalog-node --output json
+./signozctl view schema --source-page traces --output json
+./signozctl view validate --file examples/view-traces-catalog-node.json --output json
+./signozctl view create --profile local --file examples/view-traces-catalog-node.json --output json
+./signozctl view create --profile local --name "Catalog Node Saved View" --source-page traces --service-name catalog-node --output json
+./signozctl view list --profile local --source-page traces --output json
+./signozctl view get <view-id> --profile local --output json
+./signozctl view update <view-id> --profile local --file examples/view-traces-catalog-node.json --output json
+./signozctl view delete <view-id> --profile local --output json
+```
+
 Relative time override without editing payload:
 
 ```bash
@@ -145,7 +159,8 @@ Templates, schemas, and local validation for other domains:
 ## Implemented command groups
 
 - `auth`: `login`, `status`, `refresh`, `logout`, `use`, `profiles`
-- `query`: traces/logs/metrics via `/api/v5/query_range`, plus services/dependency/error commands
+- `query`: traces/logs/metrics via `/api/v5/query_range`, plus `logs-tail`, services/dependency/error commands
+- `view`: saved view CRUD + template/schema/validate for `/api/v1/explorer/views`
 - `dashboard`: `list`, `create`, `view-create`, `update`, `delete`, `templates`
 - `alerts`: alerts/rules/channels/route-policies/downtime + test helpers
 - `iam`: invite, roles, api-keys, users
