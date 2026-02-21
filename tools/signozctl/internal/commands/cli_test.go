@@ -1215,6 +1215,56 @@ func TestDashboardTemplatesApplyCreatesDashboard(t *testing.T) {
 	}
 }
 
+func TestDashboardTemplatesApplyInteractiveUsesSelectedTemplate(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.json")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/templates/index.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"templates":[{"id":"hostmetrics","name":"Host Metrics","source":"hostmetrics.json"}]}`)
+	})
+	mux.HandleFunc("/templates/hostmetrics.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"title":"Host Metrics","widgets":[],"layout":[],"variables":{}}`)
+	})
+	var createdBody string
+	mux.HandleFunc("/api/v1/dashboards", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		createdBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"success","data":{"id":"dash-interactive-1"}}`)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_INDEX_URL", server.URL+"/templates/index.json")
+	t.Setenv("SIGNOZCTL_DASHBOARD_TEMPLATES_BASE_URL", server.URL+"/templates")
+	t.Setenv("SIGNOZCTL_INTERACTIVE_TEMPLATE_ID", "hostmetrics")
+
+	cfgJSON := `{"activeProfile":"local","profiles":{"local":{"host":"` + server.URL + `","accessToken":"token-123"}}}`
+	if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	stdout, stderr, err := runCLI(
+		t, "--config", cfgPath, "--output", "json",
+		"dashboard", "templates", "apply",
+		"--interactive",
+		"--profile", "local",
+	)
+	if err != nil {
+		t.Fatalf("interactive templates apply failed: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(createdBody, `"title":"Host Metrics"`) {
+		t.Fatalf("expected dashboard created from selected interactive template, got %q", createdBody)
+	}
+	if !strings.Contains(stdout, `"dash-interactive-1"`) {
+		t.Fatalf("expected interactive created dashboard response, got %q", stdout)
+	}
+}
+
 func TestQueryLogsTailPollsAndPrintsRows(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.json")

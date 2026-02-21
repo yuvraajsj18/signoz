@@ -10,9 +10,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/AlecAivazis/survey/v2"
 	signozerrors "github.com/SigNoz/signoz/tools/signozctl/internal/errors"
 	"github.com/SigNoz/signoz/tools/signozctl/internal/output"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 type dashboardTemplateIndex struct {
@@ -100,12 +102,30 @@ func newDashboardTemplatesCommand(flags *globalFlags) *cobra.Command {
 	cmd.AddCommand(showCmd)
 
 	var profile string
+	var interactive bool
 	applyCmd := &cobra.Command{
-		Use:   "apply <template-id>",
-		Short: "Create dashboard from a template",
-		Args:  cobra.ExactArgs(1),
+		Use:   "apply [template-id]",
+		Short: "Create dashboard from a template (or choose interactively)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tpl, err := findDashboardTemplate(cmd.Context(), args[0])
+			var templateID string
+			if interactive {
+				templates, err := loadDashboardTemplates(cmd.Context())
+				if err != nil {
+					return err
+				}
+				templateID, err = selectTemplateInteractive(templates)
+				if err != nil {
+					return err
+				}
+			} else {
+				if len(args) != 1 {
+					return signozerrors.NewInputValidationError("missing_template_id", "template-id is required unless --interactive is used")
+				}
+				templateID = args[0]
+			}
+
+			tpl, err := findDashboardTemplate(cmd.Context(), templateID)
 			if err != nil {
 				return err
 			}
@@ -125,9 +145,51 @@ func newDashboardTemplatesCommand(flags *globalFlags) *cobra.Command {
 		},
 	}
 	applyCmd.Flags().StringVar(&profile, "profile", "", "profile name override")
+	applyCmd.Flags().BoolVar(&interactive, "interactive", false, "choose template using keyboard picker")
 	cmd.AddCommand(applyCmd)
 
 	return cmd
+}
+
+func selectTemplateInteractive(templates []dashboardTemplateMeta) (string, error) {
+	if len(templates) == 0 {
+		return "", signozerrors.NewInputValidationError("no_templates_available", "no dashboard templates available")
+	}
+	if forced := strings.TrimSpace(os.Getenv("SIGNOZCTL_INTERACTIVE_TEMPLATE_ID")); forced != "" {
+		return forced, nil
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", signozerrors.NewInputValidationError("interactive_requires_tty", "--interactive requires a TTY terminal")
+	}
+
+	options := make([]string, 0, len(templates))
+	idByOption := make(map[string]string, len(templates))
+	for _, tpl := range templates {
+		label := fmt.Sprintf("%s  (%s)", tpl.ID, tpl.Name)
+		options = append(options, label)
+		idByOption[label] = tpl.ID
+	}
+
+	selected := []string{}
+	prompt := &survey.MultiSelect{
+		Message: "Select template (arrow keys, space to select, enter to apply):",
+		Options: options,
+		PageSize: 12,
+	}
+	if err := survey.AskOne(prompt, &selected); err != nil {
+		return "", signozerrors.NewInputValidationError("interactive_selection_failed", err.Error())
+	}
+	if len(selected) == 0 {
+		return "", signozerrors.NewInputValidationError("interactive_selection_empty", "no template selected")
+	}
+	if len(selected) > 1 {
+		return "", signozerrors.NewInputValidationError("interactive_selection_multiple", "select exactly one template")
+	}
+	templateID, ok := idByOption[selected[0]]
+	if !ok || templateID == "" {
+		return "", signozerrors.NewInputValidationError("interactive_selection_invalid", "selected template is invalid")
+	}
+	return templateID, nil
 }
 
 func loadDashboardTemplates(ctx context.Context) ([]dashboardTemplateMeta, error) {
