@@ -859,7 +859,7 @@ func TestDashboardPanelAddAppendsPanelAndLayoutAndPUTsDashboard(t *testing.T) {
 		t, "--config", cfgPath, "--output", "json",
 		"dashboard", "panel-add", "dash-1",
 		"--file", panelPath,
-		"--x", "2", "--y", "8", "--w", "10", "--h", "5",
+		"--x", "2", "--y", "8", "--width", "10", "--height", "5",
 		"--profile", "local",
 	)
 	if err != nil {

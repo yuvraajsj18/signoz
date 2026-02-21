@@ -723,8 +723,12 @@ func newDashboardCommand(flags *globalFlags) *cobra.Command {
 	panelAddCmd.Flags().StringVar(&panelAddFile, "file", "", "panel JSON file")
 	panelAddCmd.Flags().IntVar(&panelX, "x", 0, "layout x position")
 	panelAddCmd.Flags().IntVar(&panelY, "y", 0, "layout y position")
-	panelAddCmd.Flags().IntVar(&panelW, "w", 6, "layout width")
-	panelAddCmd.Flags().IntVar(&panelH, "h", 4, "layout height")
+	panelAddCmd.Flags().IntVar(&panelW, "width", 6, "layout width")
+	panelAddCmd.Flags().IntVar(&panelH, "height", 4, "layout height")
+	panelAddCmd.Flags().IntVar(&panelW, "w", 6, "deprecated: use --width")
+	panelAddCmd.Flags().IntVar(&panelH, "h", 4, "deprecated: use --height")
+	_ = panelAddCmd.Flags().MarkHidden("w")
+	_ = panelAddCmd.Flags().MarkHidden("h")
 	cmd.AddCommand(panelAddCmd)
 
 	var panelDeleteProfile string

@@ -9,6 +9,27 @@ cd tools/signozctl
 go build ./cmd/signozctl
 ```
 
+## Install (Global)
+
+Install from the `tools/signozctl` module:
+
+```bash
+cd tools/signozctl
+go install ./cmd/signozctl
+```
+
+If `signozctl` is not found after install, add Go bin to your `PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Then verify:
+
+```bash
+signozctl --help
+```
+
 ## Core workflows
 
 1. Check server reachability:
@@ -161,10 +182,31 @@ Templates, schemas, and local validation for other domains:
 - `auth`: `login`, `status`, `refresh`, `logout`, `use`, `profiles`
 - `query`: traces/logs/metrics via `/api/v5/query_range`, plus `logs-tail`, services/dependency/error commands
 - `view`: saved view CRUD + template/schema/validate for `/api/v1/explorer/views`
-- `dashboard`: `list`, `create`, `view-create`, `update`, `delete`, `templates`
+- `dashboard`: `list`, `get`, `create`, `view-create`, `update`, `delete`, panel CRUD (`panel-list`, `panel-get`, `panel-add`, `panel-update`, `panel-delete`), `capabilities`, `widget-template`, `lint`, `cookbook`, `templates`
 - `alerts`: alerts/rules/channels/route-policies/downtime + test helpers
 - `iam`: invite, roles, api-keys, users
 - `system`: health/version/usage/disks/raw-export/ttl/apdex
 - `docs`: `search`, `fetch` (sitemap search + markdown-like fetch for `/docs/*`)
 
 Run `--help` on every group/command for details.
+
+Panel layout flags on `dashboard panel-add`:
+
+```bash
+signozctl dashboard panel-add <dashboard-id> --file <panel.json> --x 0 --y 0 --width 6 --height 4 --profile local --output json
+```
+
+## Sharing With Others
+
+Global install only ships the binary, not the README file. To share usage docs:
+
+1. Share this repo path/URL and point people to `tools/signozctl/README.md`.
+2. Ask users to run built-in help:
+
+```bash
+signozctl --help
+signozctl dashboard --help
+signozctl dashboard cookbook --help
+```
+
+3. Share runnable examples from `tools/signozctl/examples`.
